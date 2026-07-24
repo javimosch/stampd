@@ -1,0 +1,247 @@
+// server.src — the stampd HTTP service: agent-first JSON API + the hosted human
+// calculator + Resend email reports + a Stripe Pro tier. Composed last (after
+// framework/machweb.src, src/sdlt.src, src/core.src, src/cli.src, src/assets.src).
+//
+// One binary: `stampd serve -port 8080` runs this; any other argv runs the CLI.
+
+func err_json(status, msg) (r) {
+    r = response(status, "application/json", "{\"ok\":false,\"error\":" + json(msg) + "}")
+}
+
+// qdef — a query param with a fallback default.
+func qdef(req, name, def) (v) {
+    v = query(req, name)
+    if v == "" { v = def }
+}
+
+// jbody — a string field out of a JSON request body, "" if absent.
+func jbody(body, path) (v) {
+    raw, err := json_get(body, path)
+    v = ""
+    if err == "" {
+        v = raw
+        n := len(v)
+        if n >= 2 { if substr(v, 0, 1) == "\"" { v = substr(v, 1, n-1) } }
+    }
+}
+
+// report_from_params — validate the 7 calc inputs (as strings) and return the shared
+// JSON report, or ("", errmsg) on a validation failure.
+func report_from_params(price_s, buyer, nonres_s, dep_s, rate_s, years_s, income_s) (out, errmsg) {
+    out = ""
+    errmsg = ""
+    if price_s == "" { errmsg = "missing price"  return }
+    price := parse_int(price_s)
+    if price <= 0 { errmsg = "price must be a positive integer"  return }
+    if buyer == "" { buyer = "standard" }
+    if buyer_ok(buyer) == 0 { errmsg = "buyer must be standard, first_time or additional"  return }
+    nonres := 0
+    if nonres_s == "1" { nonres = 1 }
+    dep := parse_int(dep_s)
+    if dep < 0 || dep > 100 { errmsg = "deposit_pct must be 0..100"  return }
+    rate := parse_float(rate_s)
+    years := parse_int(years_s)
+    if years <= 0 { years = 25 }
+    income := parse_int(income_s)
+    out = calc_report(price, buyer, nonres, dep, rate, years, income, 1500, 600, 999)
+}
+
+// api_calc — GET|POST /api/calc — the agent-first JSON endpoint.
+func api_calc(req) (res) {
+    price_s := qdef(req, "price", "")
+    buyer := qdef(req, "buyer", "standard")
+    nonres_s := qdef(req, "non_resident", "0")
+    dep_s := qdef(req, "deposit_pct", "10")
+    rate_s := qdef(req, "rate", "4.5")
+    years_s := qdef(req, "years", "25")
+    income_s := qdef(req, "income", "0")
+    // Allow a JSON POST body to supply the same fields.
+    if req.method == "POST" && len(req.body) > 2 {
+        if jbody(req.body, ".price") != "" { price_s = jbody(req.body, ".price") }
+        if jbody(req.body, ".buyer") != "" { buyer = jbody(req.body, ".buyer") }
+        if jbody(req.body, ".non_resident") != "" { nonres_s = jbody(req.body, ".non_resident") }
+        if jbody(req.body, ".deposit_pct") != "" { dep_s = jbody(req.body, ".deposit_pct") }
+        if jbody(req.body, ".rate") != "" { rate_s = jbody(req.body, ".rate") }
+        if jbody(req.body, ".years") != "" { years_s = jbody(req.body, ".years") }
+        if jbody(req.body, ".income") != "" { income_s = jbody(req.body, ".income") }
+    }
+    out, errmsg := report_from_params(price_s, buyer, nonres_s, dep_s, rate_s, years_s, income_s)
+    if errmsg != "" { return err_json("400 Bad Request", errmsg) }
+    res = ok_json(out)
+}
+
+// email_body — a plain-text cost breakdown for the Resend email.
+func email_body(price_s, report) (b) {
+    b = "Your stampd home-buying cost breakdown\n" +
+        "=======================================\n\n" +
+        "Purchase price: " + gbp(parse_int(price_s)) + "\n\n" +
+        "Total cash needed on completion: " + gbp(parse_int(jval(report, ".result.total_upfront_cash"))) + "\n\n" +
+        "Stamp Duty (SDLT):   " + gbp(parse_int(jval(report, ".result.stamp_duty"))) + "\n" +
+        "Deposit:             " + gbp(parse_int(jval(report, ".result.deposit"))) + "\n" +
+        "Legal / conveyancing:" + gbp(parse_int(jval(report, ".result.legal_fee"))) + "\n" +
+        "Survey:              " + gbp(parse_int(jval(report, ".result.survey_fee"))) + "\n" +
+        "Mortgage fee:        " + gbp(parse_int(jval(report, ".result.mortgage_fee"))) + "\n" +
+        "Land Registry:       " + gbp(parse_int(jval(report, ".result.land_registry_fee"))) + "\n\n" +
+        "Mortgage borrowed:   " + gbp(parse_int(jval(report, ".result.loan"))) + "\n" +
+        "Monthly repayment:   " + gbp(parse_int(jval(report, ".result.monthly_payment"))) + " / month\n\n" +
+        "Estimates only. Not tax, legal, or financial advice.\n" +
+        "Rates effective 1 April 2025. — https://stampd.intrane.fr\n"
+}
+
+// jval — an inner JSON value (number or string, unquoted) from the report.
+func jval(body, path) (v) {
+    raw, err := json_get(body, path)
+    v = ""
+    if err == "" {
+        v = raw
+        n := len(v)
+        if n >= 2 { if substr(v, 0, 1) == "\"" { v = substr(v, 1, n-1) } }
+    }
+}
+
+// email_report — POST /v1/report/email — build the report and send it via Resend.
+func email_report(req) (res) {
+    to := jbody(req.body, ".to")
+    if to == "" || index(to, "@") < 0 { return err_json("400 Bad Request", "a valid 'to' email is required") }
+    price_s := jbody(req.body, ".price")
+    buyer := jbody(req.body, ".buyer")
+    nonres_s := jbody(req.body, ".non_resident")
+    dep_s := jbody(req.body, ".deposit_pct")
+    rate_s := jbody(req.body, ".rate")
+    years_s := jbody(req.body, ".years")
+    income_s := jbody(req.body, ".income")
+    if dep_s == "" { dep_s = "10" }
+    if rate_s == "" { rate_s = "4.5" }
+    if years_s == "" { years_s = "25" }
+    if income_s == "" { income_s = "0" }
+    report, errmsg := report_from_params(price_s, buyer, nonres_s, dep_s, rate_s, years_s, income_s)
+    if errmsg != "" { return err_json("400 Bad Request", errmsg) }
+
+    key := env("RESEND_API_KEY")
+    if key == "" { return err_json("503 Service Unavailable", "email is not configured on this server") }
+    from := env("STAMPD_FROM")
+    if from == "" { from = "stampd <onboarding@resend.dev>" }
+    text := email_body(price_s, report)
+    payload := "{\"from\":" + json(from) +
+        ",\"to\":[" + json(to) + "]" +
+        ",\"subject\":\"Your home-buying cost breakdown — stampd\"" +
+        ",\"text\":" + json(text) + "}"
+    status, _, herr := http_request("POST", "https://api.resend.com/emails",
+        []string{"authorization: Bearer " + key, "content-type: application/json"}, payload)
+    if herr != "" || status < 200 || status >= 300 {
+        return err_json("502 Bad Gateway", "email provider rejected the send")
+    }
+    res = ok_json("{\"ok\":true,\"sent\":true,\"to\":" + json(to) + "}")
+}
+
+// checkout — POST /v1/checkout — a Stripe Checkout session for stampd Pro (a one-off
+// unlock for unlimited branded reports + API access). Returns the hosted checkout URL.
+func checkout(req) (res) {
+    key := env("STRIPE_SECRET_KEY")
+    if key == "" { return err_json("503 Service Unavailable", "billing is not configured on this server") }
+    base := env("STAMPD_PUBLIC_URL")
+    if base == "" { base = "https://stampd.intrane.fr" }
+    body := "mode=payment" +
+        "&line_items[0][quantity]=1" +
+        "&line_items[0][price_data][currency]=gbp" +
+        "&line_items[0][price_data][product_data][name]=" + url_encode("stampd Pro — unlimited branded reports + API") +
+        "&line_items[0][price_data][unit_amount]=2900" +
+        "&success_url=" + url_encode(base + "/?pro=ok&sid={CHECKOUT_SESSION_ID}") +
+        "&cancel_url=" + url_encode(base + "/") +
+        "&metadata[kind]=pro"
+    status, resp, herr := http_request("POST", "https://api.stripe.com/v1/checkout/sessions",
+        []string{"authorization: Bearer " + key, "content-type: application/x-www-form-urlencoded"}, body)
+    if herr != "" || status != 200 { return err_json("502 Bad Gateway", "could not start checkout") }
+    u, gerr := json_get(resp, ".url")
+    if gerr != "" { return err_json("502 Bad Gateway", "checkout url missing") }
+    uu := u
+    n := len(uu)
+    if n >= 2 { if substr(uu, 0, 1) == "\"" { uu = substr(uu, 1, n-1) } }
+    res = ok_json("{\"ok\":true,\"url\":" + json(uu) + "}")
+}
+
+// stripe_webhook — POST /v1/stripe/webhook — verify the Stripe-Signature HMAC (the raw
+// body is the signed payload) and acknowledge. Payment fulfilment is a no-op for now
+// (Pro is stateless: the receipt is the entitlement) but the signature is still enforced.
+func stripe_webhook(req) (res) {
+    secret := env("STRIPE_WEBHOOK_SECRET")
+    if secret == "" { return err_json("503 Service Unavailable", "webhook not configured") }
+    sig := header(req, "Stripe-Signature")
+    t := sig_field(sig, "t")
+    v1 := sig_field(sig, "v1")
+    if t == "" || v1 == "" { return err_json("400 Bad Request", "missing signature") }
+    if hmac_sha256(secret, t + "." + req.body) != v1 { return err_json("400 Bad Request", "bad signature") }
+    res = ok_json("{\"ok\":true,\"received\":true}")
+}
+
+// feedback — POST /v1/feedback — accept an agent/user note (cli-feedback-spec sink).
+// Appended to a local log; never fails the caller with a 5xx for a well-formed note.
+func feedback(req) (res) {
+    msg := jbody(req.body, ".message")
+    if msg == "" { return err_json("400 Bad Request", "message required") }
+    write(2, "{\"feedback\":" + json(msg) + "}\n")
+    res = ok_json("{\"ok\":true}")
+}
+
+func llms_txt() (s) {
+    s = "# stampd\n" +
+        "> The true cost of buying a UK home (England & Northern Ireland): Stamp Duty (SDLT)\n" +
+        "> plus deposit, legal, survey, Land Registry, mortgage repayment and total cash on\n" +
+        "> completion. Agent-first JSON API. SDLT rates effective 1 April 2025.\n\n" +
+        "## API\n" +
+        "- GET /api/calc?price=600000&buyer=standard&deposit_pct=10&rate=4.5&years=25&income=120000&non_resident=0\n" +
+        "  -> {\"ok\":true,\"input\":{...},\"result\":{stamp_duty,deposit,loan,monthly_payment,land_registry_fee,total_upfront_cash,income_multiple,affordable,...}}\n" +
+        "- POST /api/calc  (same fields as a JSON body)\n" +
+        "- POST /v1/report/email  {\"to\":\"a@b.com\",\"price\":600000,\"buyer\":\"standard\",...}  emails the breakdown\n\n" +
+        "## buyer types\n" +
+        "standard | first_time | additional ; non_resident=1 adds the 2% surcharge.\n\n" +
+        "## Learn\n" +
+        "GET /guide — full operating manual. CLI: `stampd guide` / `stampd help-json`.\n"
+}
+
+// handle — the router.
+func handle(req) (res) {
+    p := req.path
+    qi := index(p, "?")
+    if qi >= 0 { p = substr(p, 0, qi) }
+
+    if p == "/_health" { return ok_json("{\"ok\":true,\"service\":\"stampd\",\"version\":\"" + ver() + "\"}") }
+    if p == "/" || p == "/index.html" { return ok_html(landing_html()) }
+    if p == "/guide" { return ok_text(guide_text()) }
+    if p == "/llms.txt" { return ok_text(llms_txt()) }
+    if p == "/help-json" { return ok_json(help_json()) }
+    if p == "/api/calc" { return api_calc(req) }
+    if p == "/v1/report/email" && req.method == "POST" { return email_report(req) }
+    if p == "/v1/checkout" && req.method == "POST" { return checkout(req) }
+    if p == "/v1/stripe/webhook" && req.method == "POST" { return stripe_webhook(req) }
+    if p == "/v1/feedback" && req.method == "POST" { return feedback(req) }
+    res = not_found()
+}
+
+// port_flag — the listen port from serve's argv. Accepts either `-port N` / `--port N`
+// or a bare positional `serve N` (default 8080).
+func port_flag() (p) {
+    p = 8080
+    a := args()
+    i := 2
+    for i < len(a) {
+        if a[i] == "-port" || a[i] == "--port" {
+            if i+1 < len(a) { p = parse_int(a[i+1]) }
+        } else {
+            n := parse_int(a[i])
+            if n > 0 { p = n }
+        }
+        i = i + 1
+    }
+}
+
+func main() {
+    a := args()
+    cmd := ""
+    if len(a) >= 2 { cmd = a[1] }
+    if cmd == "serve" {
+        serve(port_flag(), func(req) { return handle(req) })
+        return
+    }
+    run_cli()
+}

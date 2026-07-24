@@ -1,0 +1,11 @@
+[Unit]
+Description=stampd — UK property buying-cost engine
+After=network.target
+[Service]
+User=dk1
+WorkingDirectory=/opt/stampd
+EnvironmentFile=/etc/stampd/stampd.env
+ExecStart=/opt/stampd/stampd serve 8791
+Restart=always
+[Install]
+WantedBy=multi-user.target

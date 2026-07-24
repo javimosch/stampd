@@ -1,0 +1,144 @@
+// Unit tests for src/sdlt.src — the pure buying-cost engine.
+// Run: machin test src/sdlt.src test/sdlt_test.src   (or ./test.sh)
+//
+// SDLT figures below are cross-checked against the official gov.uk calculator for the
+// rates effective 1 April 2025. If a rate changes, these locked numbers change too.
+
+func test_band_tax() {
+    assert_eq_int(band_tax(200000, 125000, 250000, 2), 1500, "band_tax 2% slice 125k-200k")
+    assert_eq_int(band_tax(100000, 125000, 250000, 2), 0, "band_tax below band = 0")
+    assert_eq_int(band_tax(300000, 125000, 250000, 2), 2500, "band_tax full band capped at hi")
+    assert_eq_int(band_tax(500000, 0, 125000, 0), 0, "band_tax 0% band")
+}
+
+func test_sdlt_standard() {
+    // Under the £125k threshold: nothing to pay.
+    assert_eq_int(sdlt_standard(120000), 0, "standard under 125k = 0")
+    // £250,000: 2% on the 125k-250k slice = £2,500.
+    assert_eq_int(sdlt_standard(250000), 2500, "standard 250k")
+    // £295,000 (typical outer-London flat): 2500 + 5% of 45k (2250) = £4,750.
+    assert_eq_int(sdlt_standard(295000), 4750, "standard 295k")
+    // £600,000: 2500 + 5% of 350k (17500) = £20,000.
+    assert_eq_int(sdlt_standard(600000), 20000, "standard 600k")
+    // £925,000: 2500 + 5% of 675k (33750) = £36,250.
+    assert_eq_int(sdlt_standard(925000), 36250, "standard 925k")
+    // £1,000,000: 36250 + 10% of 75k (7500) = £43,750.
+    assert_eq_int(sdlt_standard(1000000), 43750, "standard 1M")
+    // £2,000,000: 36250 + 10% of 575k (57500) + 12% of 500k (60000) = £153,750.
+    assert_eq_int(sdlt_standard(2000000), 153750, "standard 2M")
+}
+
+func test_sdlt_first_time() {
+    // FTB pays nothing up to £300k.
+    assert_eq_int(sdlt_first_time(300000), 0, "FTB 300k = 0")
+    // £425,000 FTB: 5% of (425k-300k) = £6,250.
+    assert_eq_int(sdlt_first_time(425000), 6250, "FTB 425k")
+    // £500,000 FTB: 5% of 200k = £10,000.
+    assert_eq_int(sdlt_first_time(500000), 10000, "FTB 500k boundary")
+    // £500,001 FTB: relief lost, falls back to standard rates.
+    assert_eq_int(sdlt_first_time(500001), sdlt_standard(500001), "FTB over 500k = standard")
+    // £600,000 FTB: no relief, equals standard £20,000.
+    assert_eq_int(sdlt_first_time(600000), 20000, "FTB 600k = standard")
+}
+
+func test_sdlt_additional() {
+    // £40,000 additional: 5% on the whole thing (first band) = £2,000.
+    assert_eq_int(sdlt_additional(40000), 2000, "additional 40k")
+    // Under £40k: no surcharge, equals standard (which is 0 here).
+    assert_eq_int(sdlt_additional(39000), 0, "additional under 40k = standard 0")
+    // £300,000 additional (BTL): standard would be 5000; +5% of 300k (15000) = £20,000.
+    assert_eq_int(sdlt_additional(300000), 20000, "additional 300k")
+    // £600,000 additional: standard 20000 + 5% of 600k (30000) = £50,000.
+    assert_eq_int(sdlt_additional(600000), 50000, "additional 600k")
+}
+
+func test_sdlt_nonresident() {
+    // Non-resident adds 2% of the whole price on top.
+    assert_eq_int(sdlt(600000, "standard", 1), 20000 + 12000, "nonres standard 600k adds 2%")
+    assert_eq_int(sdlt(600000, "standard", 0), 20000, "resident standard 600k no add")
+    // Non-resident first-time under threshold still pays the 2%.
+    assert_eq_int(sdlt(300000, "first_time", 1), 6000, "nonres FTB 300k = 2% only")
+    // Under £40k: no non-resident surcharge.
+    assert_eq_int(nonres_surcharge(35000, 1), 0, "nonres under 40k = 0")
+    assert_eq_int(nonres_surcharge(500000, 1), 10000, "nonres 500k = 10000")
+    assert_eq_int(nonres_surcharge(500000, 0), 0, "resident surcharge 0")
+}
+
+func test_sdlt_dispatch() {
+    // The top-level sdlt() routes to the right band set by buyer type.
+    assert_eq_int(sdlt(600000, "standard", 0), 20000, "dispatch standard")
+    assert_eq_int(sdlt(425000, "first_time", 0), 6250, "dispatch first_time")
+    assert_eq_int(sdlt(600000, "additional", 0), 50000, "dispatch additional")
+    // Unknown buyer type falls back to standard.
+    assert_eq_int(sdlt(600000, "bogus", 0), 20000, "dispatch unknown = standard")
+}
+
+func test_effective_rate() {
+    // £600k standard, £20k SDLT => 20000/600000 = 3.33% => 333 bp.
+    assert_eq_int(sdlt_effective_rate_bp(600000, "standard", 0), 333, "effective rate 600k standard")
+    assert_eq_int(sdlt_effective_rate_bp(0, "standard", 0), 0, "effective rate price 0 = 0")
+}
+
+func test_lr_fee() {
+    assert_eq_int(lr_fee(75000), 20, "LR fee <=80k")
+    assert_eq_int(lr_fee(95000), 40, "LR fee <=100k")
+    assert_eq_int(lr_fee(150000), 100, "LR fee <=200k")
+    assert_eq_int(lr_fee(450000), 150, "LR fee <=500k")
+    assert_eq_int(lr_fee(800000), 295, "LR fee <=1M")
+    assert_eq_int(lr_fee(1500000), 500, "LR fee >1M")
+}
+
+func test_deposit_loan() {
+    assert_eq_int(deposit(500000, 10), 50000, "deposit 10% of 500k")
+    assert_eq_int(deposit(500000, 25), 125000, "deposit 25% of 500k")
+    assert_eq_int(loan_amount(500000, 10), 450000, "loan 90% of 500k")
+    assert_eq_int(loan_amount(500000, 100), 0, "loan cash buyer = 0")
+}
+
+func test_pow_f() {
+    assert_eq_int(int(pow_f(2.0, 10) + 0.5), 1024, "pow_f 2^10")
+    assert_eq_int(int(pow_f(5.0, 0) + 0.5), 1, "pow_f x^0 = 1")
+    assert_eq_int(int(pow_f(1.0, 480) + 0.5), 1, "pow_f 1^480 = 1")
+}
+
+func test_monthly_payment() {
+    // £450,000 loan, 4.5% over 25 years => ~£2,501/month (known amortization value).
+    m := monthly_payment(450000, 4.5, 25)
+    assert(m >= 2495 && m <= 2505, "monthly payment 450k @4.5% 25y ~= 2501")
+    // 0% rate: straight line 120000/ (10*12=120) = 1000.
+    assert_eq_int(monthly_payment(120000, 0.0, 10), 1000, "monthly payment 0% straight line")
+    // Zero loan / zero term guards.
+    assert_eq_int(monthly_payment(0, 4.5, 25), 0, "monthly payment zero loan")
+    assert_eq_int(monthly_payment(100000, 4.5, 0), 0, "monthly payment zero term")
+}
+
+func test_income_multiple() {
+    assert_eq_int(income_multiple_x100(450000, 100000), 450, "income multiple 4.5x")
+    assert_eq_int(income_multiple_x100(450000, 0), 0, "income multiple zero income guard")
+    assert_eq_int(income_multiple_x100(360000, 90000), 400, "income multiple 4.0x")
+}
+
+func test_upfront_cash() {
+    // 500k standard purchase, 10% deposit, £1500 legal, £600 survey, £999 mortgage fee.
+    // SDLT(500k standard): 2% of 125k (2500) + 5% of 250k (12500) = 15000.
+    // deposit 50000 + 15000 + LR 150 + 1500 + 600 + 999 = 68249.
+    got := upfront_cash(500000, "standard", 0, 10, 1500, 600, 999)
+    assert_eq_int(got, 50000 + 15000 + 150 + 1500 + 600 + 999, "upfront cash 500k standard")
+}
+
+func main() {
+    test_band_tax()
+    test_sdlt_standard()
+    test_sdlt_first_time()
+    test_sdlt_additional()
+    test_sdlt_nonresident()
+    test_sdlt_dispatch()
+    test_effective_rate()
+    test_lr_fee()
+    test_deposit_loan()
+    test_pow_f()
+    test_monthly_payment()
+    test_income_multiple()
+    test_upfront_cash()
+    test_summary()
+}

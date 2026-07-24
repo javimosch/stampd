@@ -1,0 +1,164 @@
+// sdlt.src — the pure UK property buying-cost engine for stampd.
+//
+// NO server, NO I/O, NO side effects: every function here is a deterministic pure
+// function of its arguments, so the whole file is unit-testable via `machin test`.
+// This is the heart of stampd — the numbers a London buyer actually cares about.
+//
+// Money is handled in WHOLE POUNDS with integer arithmetic. HMRC rounds SDLT down to
+// the nearest pound, and integer band math (portion * pct / 100, integer divide) floors
+// naturally, so this matches the official calculation. Only the mortgage amortization
+// uses floats (compound interest is inherently fractional), rounded at the very end.
+//
+// Rates are the England & Northern Ireland residential SDLT rates effective 1 April 2025.
+// Source: https://www.gov.uk/stamp-duty-land-tax/residential-property-rates
+
+// BIG — an upper sentinel for the top (open-ended) SDLT band. No UK home price approaches
+// it; it just lets band_tax treat "above X" as a normal [lo, hi] slice.
+func big() (n) { n = 100000000000 }
+
+// band_tax — SDLT charged on the slice of `price` that falls inside the band [lo, hi],
+// at `pct` percent. This is the marginal ("slice") system: you pay each band's rate only
+// on the part of the price within that band. Integer divide floors to whole pounds.
+func band_tax(price, lo, hi, pct) (t) {
+    t = 0
+    if price <= lo { return t }
+    top := price
+    if top > hi { top = hi }
+    portion := top - lo
+    t = portion * pct / 100
+}
+
+// sdlt_standard — a buyer who already owns a home (or a non-first-time mover) buying a
+// single main residence. The standard residential bands.
+func sdlt_standard(price) (t) {
+    t = band_tax(price, 0, 125000, 0) +
+        band_tax(price, 125000, 250000, 2) +
+        band_tax(price, 250000, 925000, 5) +
+        band_tax(price, 925000, 1500000, 10) +
+        band_tax(price, 1500000, big(), 12)
+}
+
+// sdlt_first_time — first-time buyer relief. Applies ONLY when the price is £500,000 or
+// less; above that, relief is lost entirely and standard rates apply to the whole price.
+func sdlt_first_time(price) (t) {
+    if price > 500000 { return sdlt_standard(price) }
+    t = band_tax(price, 0, 300000, 0) +
+        band_tax(price, 300000, 500000, 5)
+}
+
+// sdlt_additional — buying an additional property (second home / buy-to-let) so you end
+// up owning more than one. A 5% surcharge is added to every standard band. The surcharge
+// does not apply at all below £40,000 (no SDLT is due there anyway).
+func sdlt_additional(price) (t) {
+    if price < 40000 { return sdlt_standard(price) }
+    t = band_tax(price, 0, 125000, 5) +
+        band_tax(price, 125000, 250000, 7) +
+        band_tax(price, 250000, 925000, 10) +
+        band_tax(price, 925000, 1500000, 15) +
+        band_tax(price, 1500000, big(), 17)
+}
+
+// nonres_surcharge — the 2% non-UK-resident surcharge, charged on the whole chargeable
+// consideration (£40,000+). It stacks on top of whichever base rate applies (standard,
+// first-time, or additional).
+func nonres_surcharge(price, non_resident) (t) {
+    t = 0
+    if non_resident == 1 {
+        if price >= 40000 { t = price * 2 / 100 }
+    }
+}
+
+// sdlt — the top-level stamp duty figure. `buyer` is one of "standard", "first_time",
+// "additional". `non_resident` is 1 for a buyer present in the UK fewer than 183 days in
+// the year before purchase, else 0. Returns total SDLT in whole pounds.
+func sdlt(price, buyer, non_resident) (t) {
+    base := 0
+    if buyer == "first_time" {
+        base = sdlt_first_time(price)
+    } else if buyer == "additional" {
+        base = sdlt_additional(price)
+    } else {
+        base = sdlt_standard(price)
+    }
+    t = base + nonres_surcharge(price, non_resident)
+}
+
+// sdlt_effective_rate_bp — the effective (blended) SDLT rate as an integer basis-point
+// figure (bp = 0.01%). A £600,000 standard purchase paying £17,500 => 2916 bp = 29.16%
+// ... of nothing; it's tax/price. Useful "how much of the price is tax" headline.
+func sdlt_effective_rate_bp(price, buyer, non_resident) (bp) {
+    bp = 0
+    if price > 0 { bp = sdlt(price, buyer, non_resident) * 10000 / price }
+}
+
+// ---------------------------------------------------------------------------
+// Other upfront costs
+// ---------------------------------------------------------------------------
+
+// lr_fee — HM Land Registry registration fee (Scale 1, transfer of whole for value,
+// electronic lodgement), by price band. A small but real line item buyers forget.
+func lr_fee(price) (f) {
+    if price <= 80000 { return 20 }
+    if price <= 100000 { return 40 }
+    if price <= 200000 { return 100 }
+    if price <= 500000 { return 150 }
+    if price <= 1000000 { return 295 }
+    f = 500
+}
+
+// deposit — the cash deposit for a given loan-to-value. `deposit_pct` is a whole percent
+// (e.g. 10 for a 10% deposit / 90% LTV).
+func deposit(price, deposit_pct) (d) {
+    d = price * deposit_pct / 100
+}
+
+// loan_amount — the mortgage borrowed = price minus deposit.
+func loan_amount(price, deposit_pct) (l) {
+    l = price - deposit(price, deposit_pct)
+}
+
+// pow_f — base^n for a non-negative integer exponent, by repeated multiplication (no libm
+// dependency, exact for the small n we use: n = months <= 480).
+func pow_f(base, n) (r) {
+    r = 1.0
+    i := 0
+    for i < n {
+        r = r * base
+        i = i + 1
+    }
+}
+
+// monthly_payment — the level monthly repayment on a repayment mortgage. `loan` in pounds,
+// `rate_pct` the annual interest rate as a float percent (e.g. 4.5), `years` the term.
+// Standard amortization: M = L * r(1+r)^n / ((1+r)^n - 1), r = monthly rate. Rounded to
+// the nearest whole pound. A 0% rate degenerates to straight-line loan/n.
+func monthly_payment(loan, rate_pct, years) (m) {
+    n := years * 12
+    if n <= 0 { return 0 }
+    if loan <= 0 { return 0 }
+    lf := float(loan)
+    if rate_pct == 0.0 { return int(lf / float(n) + 0.5) }
+    r := (rate_pct / 100.0) / 12.0
+    factor := pow_f(1.0 + r, n)
+    mf := lf * r * factor / (factor - 1.0)
+    m = int(mf + 0.5)
+}
+
+// income_multiple_x100 — loan-to-income as an integer x100 (so 4.52x => 452). Lenders
+// typically cap around 4.5x gross income; this lets the caller flag stretch without floats.
+func income_multiple_x100(loan, gross_income) (x) {
+    x = 0
+    if gross_income > 0 { x = loan * 100 / gross_income }
+}
+
+// upfront_cash — total cash a buyer needs on completion day: deposit + SDLT + all fees.
+// The mortgaged loan is NOT cash the buyer provides, so it is excluded. `legal` and
+// `survey` and `mortgage_fee` are caller-supplied estimates (pounds).
+func upfront_cash(price, buyer, non_resident, deposit_pct, legal, survey, mortgage_fee) (c) {
+    c = deposit(price, deposit_pct) +
+        sdlt(price, buyer, non_resident) +
+        lr_fee(price) +
+        legal +
+        survey +
+        mortgage_fee
+}

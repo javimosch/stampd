@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>stampd — the true cost of buying a UK home</title>
+<style>
+  :root{--bg:#0f1216;--card:#171c23;--ink:#eef2f7;--mut:#93a1b0;--acc:#3ea6ff;--good:#39d98a;--bad:#ff6b6b;--line:#232b35}
+  *{box-sizing:border-box}
+  body{margin:0;font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:var(--ink)}
+  .wrap{max-width:880px;margin:0 auto;padding:32px 20px 80px}
+  header{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+  h1{font-size:28px;margin:0;letter-spacing:-.5px}
+  .tag{color:var(--mut);font-size:15px}
+  .lead{color:var(--mut);margin:14px 0 26px;max-width:620px}
+  .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:22px;margin-bottom:20px}
+  label{display:block;font-size:13px;color:var(--mut);margin:0 0 6px}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+  @media(max-width:560px){.grid{grid-template-columns:1fr}}
+  input,select{width:100%;padding:11px 12px;background:#0f141a;border:1px solid var(--line);border-radius:9px;color:var(--ink);font-size:15px}
+  .chk{display:flex;align-items:center;gap:9px;margin-top:26px}
+  .chk input{width:auto}
+  button{cursor:pointer;border:0;border-radius:10px;font-size:15px;font-weight:600;padding:12px 18px}
+  .primary{background:var(--acc);color:#04121f}
+  .ghost{background:transparent;color:var(--acc);border:1px solid var(--line)}
+  .actions{display:flex;gap:12px;flex-wrap:wrap;margin-top:20px}
+  .headline{font-size:15px;color:var(--mut)}
+  .big{font-size:40px;font-weight:700;letter-spacing:-1px;margin:4px 0 2px}
+  .rows{margin-top:16px;border-top:1px solid var(--line)}
+  .row{display:flex;justify-content:space-between;padding:11px 0;border-bottom:1px solid var(--line)}
+  .row .k{color:var(--mut)}
+  .row .v{font-variant-numeric:tabular-nums;font-weight:600}
+  .pill{display:inline-block;font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px}
+  .pill.good{background:rgba(57,217,138,.15);color:var(--good)}
+  .pill.bad{background:rgba(255,107,107,.15);color:var(--bad)}
+  .hidden{display:none}
+  .foot{color:var(--mut);font-size:13px;margin-top:30px;line-height:1.7}
+  .foot code{background:#0f141a;padding:2px 6px;border-radius:5px;border:1px solid var(--line)}
+  a{color:var(--acc)}
+  .note{font-size:12px;color:var(--mut);margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>stampd</h1>
+    <span class="tag">the true cost of buying a UK home</span>
+  </header>
+  <p class="lead">Stamp duty, deposit, legal &amp; survey fees, Land Registry, your monthly mortgage —
+  every number a London buyer needs, in one place. Rates effective 1&nbsp;April&nbsp;2025.</p>
+
+  <div class="card">
+    <div class="grid">
+      <div>
+        <label>Purchase price (£)</label>
+        <input id="price" type="number" value="600000" min="1" step="1000">
+      </div>
+      <div>
+        <label>Buyer type</label>
+        <select id="buyer">
+          <option value="standard">Moving home (already own one)</option>
+          <option value="first_time">First-time buyer</option>
+          <option value="additional">Additional property / buy-to-let</option>
+        </select>
+      </div>
+      <div>
+        <label>Deposit (%)</label>
+        <input id="deposit" type="number" value="10" min="0" max="100">
+      </div>
+      <div>
+        <label>Mortgage rate (% APR)</label>
+        <input id="rate" type="number" value="4.5" min="0" step="0.1">
+      </div>
+      <div>
+        <label>Mortgage term (years)</label>
+        <input id="years" type="number" value="25" min="1" max="40">
+      </div>
+      <div>
+        <label>Gross annual income (£, optional)</label>
+        <input id="income" type="number" value="120000" min="0" step="1000">
+      </div>
+      <div class="chk">
+        <input id="nonres" type="checkbox">
+        <label for="nonres" style="margin:0">I'm a non-UK resident (+2%)</label>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="primary" onclick="calc()">Calculate</button>
+      <button class="ghost" onclick="emailReport()">Email me this report</button>
+    </div>
+    <div class="note">Estimates only — legal (£1,500), survey (£600) and mortgage-arrangement (£999) fees use typical UK defaults. Not financial or tax advice.</div>
+  </div>
+
+  <div id="out" class="card hidden">
+    <div class="headline">Total cash you need on completion day</div>
+    <div class="big" id="cash">—</div>
+    <div id="afford"></div>
+    <div class="rows" id="rows"></div>
+  </div>
+
+  <div class="foot">
+    <strong>Built for agents too.</strong> stampd is agent-first: every number here is one JSON call away.
+    <br>Try it: <code>curl "https://stampd.intrane.fr/api/calc?price=600000&amp;buyer=standard"</code>
+    <br>Learn the tool: <code>curl https://stampd.intrane.fr/guide</code> · <a href="/llms.txt">/llms.txt</a>
+    <br>Open source (MIT) &amp; CLI on <a href="https://github.com/javimosch/stampd">GitHub</a>.
+  </div>
+</div>
+
+<script>
+function g(id){return document.getElementById(id)}
+function money(n){return "£"+Number(n).toLocaleString("en-GB")}
+async function calc(){
+  const q=new URLSearchParams({
+    price:g("price").value, buyer:g("buyer").value,
+    deposit_pct:g("deposit").value, rate:g("rate").value,
+    years:g("years").value, income:g("income").value,
+    non_resident:g("nonres").checked?"1":"0"
+  });
+  const r=await fetch("/api/calc?"+q.toString());
+  const j=await r.json();
+  if(!j.ok){alert(j.error||"error");return}
+  render(j.result);
+}
+function render(x){
+  g("out").classList.remove("hidden");
+  g("cash").textContent=money(x.total_upfront_cash);
+  let a="";
+  if(x.income_multiple!=="0.00"){
+    const ok=x.affordable===1;
+    a='<span class="pill '+(ok?"good":"bad")+'">'+(ok?"Within":"Above")+' 4.5× income ('+x.income_multiple+'×)</span>';
+  }
+  g("afford").innerHTML=a;
+  const rows=[
+    ["Stamp Duty (SDLT)",money(x.stamp_duty)+" ("+x.stamp_duty_effective_pct+"%)"],
+    ["Deposit",money(x.deposit)],
+    ["Legal / conveyancing",money(x.legal_fee)],
+    ["Survey",money(x.survey_fee)],
+    ["Mortgage fee",money(x.mortgage_fee)],
+    ["Land Registry",money(x.land_registry_fee)],
+    ["Mortgage borrowed",money(x.loan)],
+    ["Monthly repayment",money(x.monthly_payment)+" /mo"]
+  ];
+  g("rows").innerHTML=rows.map(function(r){return '<div class="row"><span class="k">'+r[0]+'</span><span class="v">'+r[1]+'</span></div>'}).join("");
+}
+async function emailReport(){
+  const to=prompt("Email address to send this cost breakdown to:");
+  if(!to)return;
+  const q=new URLSearchParams({
+    price:g("price").value, buyer:g("buyer").value,
+    deposit_pct:g("deposit").value, rate:g("rate").value,
+    years:g("years").value, income:g("income").value,
+    non_resident:g("nonres").checked?"1":"0", to:to
+  });
+  const r=await fetch("/v1/report/email",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(Object.fromEntries(q))});
+  const j=await r.json();
+  alert(j.ok?("Sent to "+to+" ✓"):(j.error||"Could not send"));
+}
+window.addEventListener("load",calc);
+</script>
+</body>
+</html>

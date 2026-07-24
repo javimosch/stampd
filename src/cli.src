@@ -1,0 +1,173 @@
+// cli.src — the agent-first command line for stampd.
+// Contract (cli-specs.intrane.fr): JSON on stdout, structured errors on stderr, semantic
+// exit codes, a `guide` command, a `help-json` for introspection, a `feedback` command.
+// Composed after src/sdlt.src + src/core.src.
+
+func ver() (s) { s = "0.1.0" }
+
+// eprint_err — a structured error to stderr (fd 2) + the given exit code. stdout stays
+// clean so it is always safe to pipe stampd's data output.
+func eprint_err(code, msg) {
+    write(2, "{\"ok\":false,\"error\":" + json(msg) + ",\"exit\":" + str(code) + "}\n")
+    exit(code)
+}
+
+// flag — value of "--name" from the CLI args, or `def` if absent. Scans args()[2..]
+// (args()[0]=program, args()[1]=subcommand).
+func flag(name, def) (v) {
+    v = def
+    a := args()
+    i := 2
+    for i < len(a) {
+        if a[i] == name {
+            if i+1 < len(a) { return a[i+1] }
+            return def
+        }
+        i = i + 1
+    }
+}
+
+// has_flag — true if a bare "--name" switch is present.
+func has_flag(name) (ok) {
+    ok = 0
+    a := args()
+    i := 2
+    for i < len(a) {
+        if a[i] == name { return 1 }
+        i = i + 1
+    }
+}
+
+// guide_text — the in-binary operating manual (the model, the loop, the concepts, the
+// gotchas). An agent learns stampd once from this, no external docs.
+func guide_text() (s) {
+    s = "stampd — the true cost of buying a UK home (England & N. Ireland).\n" +
+        "\n" +
+        "THE MODEL\n" +
+        "  You give a purchase price and a buyer profile; stampd returns every upfront cost:\n" +
+        "  Stamp Duty (SDLT), deposit, legal, survey, mortgage fee, Land Registry, the\n" +
+        "  monthly mortgage repayment, and the total cash needed on completion day.\n" +
+        "  All figures are whole pounds. SDLT rates are those effective 1 April 2025.\n" +
+        "\n" +
+        "THE LOOP\n" +
+        "  stampd calc --price 600000 --buyer standard [flags]   # -> JSON on stdout\n" +
+        "  Pipe it, diff it, store it. Exit 0 = ok; 80-89 = bad input.\n" +
+        "\n" +
+        "BUYER TYPES\n" +
+        "  standard    moving home / already own a property (standard SDLT bands)\n" +
+        "  first_time  first-time buyer relief (0% to £300k, only if price <= £500k)\n" +
+        "  additional  second home / buy-to-let (+5% surcharge on every band)\n" +
+        "  --non-resident adds the 2% non-UK-resident surcharge on top of any of the above.\n" +
+        "\n" +
+        "FLAGS (calc)\n" +
+        "  --price N          purchase price in £ (required)\n" +
+        "  --buyer TYPE       standard | first_time | additional (default standard)\n" +
+        "  --non-resident     set the 2% non-resident surcharge\n" +
+        "  --deposit-pct N    deposit as a whole % (default 10)\n" +
+        "  --rate N           mortgage annual rate %, e.g. 4.5 (default 4.5)\n" +
+        "  --years N          mortgage term in years (default 25)\n" +
+        "  --income N         gross annual income £, enables the 4.5x affordability flag\n" +
+        "  --legal N          conveyancing estimate £ (default 1500)\n" +
+        "  --survey N         survey estimate £ (default 600)\n" +
+        "  --mortgage-fee N   arrangement fee £ (default 999)\n" +
+        "\n" +
+        "CONCEPTS\n" +
+        "  SDLT is a SLICE tax: each band's rate applies only to the part of the price in\n" +
+        "  that band. `stamp_duty_effective_pct` is tax/price (the blended rate).\n" +
+        "  `affordable` is 1 when the loan is within 4.5x gross income (a common cap).\n" +
+        "\n" +
+        "GOTCHAS\n" +
+        "  - First-time relief vanishes entirely above £500k (standard rates apply).\n" +
+        "  - The additional-property surcharge does not apply below £40,000.\n" +
+        "  - Estimates only; not tax, legal, or financial advice.\n" +
+        "\n" +
+        "OTHER COMMANDS\n" +
+        "  stampd guide        this manual\n" +
+        "  stampd help-json    machine-readable command + flag catalog\n" +
+        "  stampd version      { \"version\": ... }\n" +
+        "  stampd feedback \"msg\"   send a note to the maintainer\n" +
+        "  stampd serve -port 8080 run the HTTP API + hosted calculator\n"
+}
+
+func help_json() (s) {
+    s = "{\"tool\":\"stampd\",\"version\":" + json(ver()) + "," +
+        "\"description\":\"UK property buying-cost engine: SDLT + all upfront costs.\"," +
+        "\"commands\":[" +
+        "{\"name\":\"calc\",\"summary\":\"compute the full buying-cost report as JSON\",\"flags\":[" +
+        "{\"name\":\"--price\",\"type\":\"int\",\"required\":true,\"desc\":\"purchase price in GBP\"}," +
+        "{\"name\":\"--buyer\",\"type\":\"enum\",\"values\":[\"standard\",\"first_time\",\"additional\"],\"default\":\"standard\"}," +
+        "{\"name\":\"--non-resident\",\"type\":\"bool\",\"desc\":\"2% non-UK-resident surcharge\"}," +
+        "{\"name\":\"--deposit-pct\",\"type\":\"int\",\"default\":10}," +
+        "{\"name\":\"--rate\",\"type\":\"float\",\"default\":4.5,\"desc\":\"mortgage annual rate %\"}," +
+        "{\"name\":\"--years\",\"type\":\"int\",\"default\":25}," +
+        "{\"name\":\"--income\",\"type\":\"int\",\"default\":0,\"desc\":\"gross annual income GBP\"}," +
+        "{\"name\":\"--legal\",\"type\":\"int\",\"default\":1500}," +
+        "{\"name\":\"--survey\",\"type\":\"int\",\"default\":600}," +
+        "{\"name\":\"--mortgage-fee\",\"type\":\"int\",\"default\":999}]}," +
+        "{\"name\":\"guide\",\"summary\":\"print the operating manual\"}," +
+        "{\"name\":\"help-json\",\"summary\":\"this catalog\"}," +
+        "{\"name\":\"version\",\"summary\":\"print version JSON\"}," +
+        "{\"name\":\"feedback\",\"summary\":\"send a note to the maintainer\"}," +
+        "{\"name\":\"serve\",\"summary\":\"run the HTTP API + hosted calculator\",\"flags\":[{\"name\":\"-port\",\"type\":\"int\",\"default\":8080}]}]," +
+        "\"exit_codes\":{\"0\":\"ok\",\"80\":\"invalid input\",\"90\":\"not found\",\"100\":\"integration/upstream\",\"110\":\"internal\"}}"
+}
+
+// do_calc — parse flags, validate, print the shared report to stdout, exit 0.
+func do_calc() {
+    ps := flag("--price", "")
+    if ps == "" { eprint_err(80, "missing --price") }
+    price := parse_int(ps)
+    if price <= 0 { eprint_err(80, "price must be a positive integer") }
+
+    buyer := flag("--buyer", "standard")
+    if buyer_ok(buyer) == 0 { eprint_err(80, "buyer must be standard, first_time or additional") }
+
+    nonres := 0
+    if has_flag("--non-resident") == 1 { nonres = 1 }
+
+    dep := parse_int(flag("--deposit-pct", "10"))
+    if dep < 0 || dep > 100 { eprint_err(80, "deposit-pct must be 0..100") }
+    rate := parse_float(flag("--rate", "4.5"))
+    years := parse_int(flag("--years", "25"))
+    income := parse_int(flag("--income", "0"))
+    legal := parse_int(flag("--legal", "1500"))
+    survey := parse_int(flag("--survey", "600"))
+    mfee := parse_int(flag("--mortgage-fee", "999"))
+
+    println(calc_report(price, buyer, nonres, dep, rate, years, income, legal, survey, mfee))
+    exit(0)
+}
+
+// do_feedback — best-effort note relay to the hosted stampd (cli-feedback-spec, never
+// fails the caller). Uses the http_request builtin; ignores transport errors.
+func do_feedback() {
+    a := args()
+    msg := ""
+    if len(a) >= 3 { msg = a[2] }
+    if msg == "" { eprint_err(80, "usage: stampd feedback \"your message\"") }
+    base := env("STAMPD_URL")
+    if base == "" { base = "https://stampd.intrane.fr" }
+    body := "{\"message\":" + json(msg) + ",\"tool\":\"stampd\",\"version\":" + json(ver()) + "}"
+    _, _, _ := http_request("POST", base + "/v1/feedback",
+        []string{"content-type: application/json"}, body)
+    println("{\"ok\":true,\"sent\":true}")
+    exit(0)
+}
+
+// run_cli — dispatch a non-serve subcommand. Returns without acting only for "serve"
+// (handled by main, which starts the HTTP server instead).
+func run_cli() {
+    a := args()
+    cmd := ""
+    if len(a) >= 2 { cmd = a[1] }
+    if cmd == "calc" { do_calc() }
+    if cmd == "guide" { print(guide_text())  exit(0) }
+    if cmd == "help-json" { println(help_json())  exit(0) }
+    if cmd == "version" { println("{\"version\":" + json(ver()) + "}")  exit(0) }
+    if cmd == "feedback" { do_feedback() }
+    if cmd == "" || cmd == "help" || cmd == "-h" || cmd == "--help" {
+        print(guide_text())
+        exit(0)
+    }
+    eprint_err(80, "unknown command: " + cmd + " (try: stampd help-json)")
+}

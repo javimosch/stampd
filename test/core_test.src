@@ -1,0 +1,70 @@
+// Unit tests for src/core.src — formatters + the JSON report builder.
+// Run: machin test src/sdlt.src src/core.src test/core_test.src
+
+func test_gbp() {
+    assert_eq_str(gbp(0), "£0", "gbp zero")
+    assert_eq_str(gbp(999), "£999", "gbp under 1000")
+    assert_eq_str(gbp(1000), "£1,000", "gbp thousand")
+    assert_eq_str(gbp(1234567), "£1,234,567", "gbp millions")
+    assert_eq_str(gbp(500000), "£500,000", "gbp 500k")
+    assert_eq_str(gbp(-2500), "-£2,500", "gbp negative")
+}
+
+func test_bp_pct() {
+    assert_eq_str(bp_pct(333), "3.33", "bp_pct 333")
+    assert_eq_str(bp_pct(1200), "12.00", "bp_pct 1200")
+    assert_eq_str(bp_pct(5), "0.05", "bp_pct 5")
+    assert_eq_str(bp_pct(0), "0.00", "bp_pct 0")
+}
+
+func test_x100_str() {
+    assert_eq_str(x100_str(452), "4.52", "x100 452")
+    assert_eq_str(x100_str(400), "4.00", "x100 400")
+    assert_eq_str(x100_str(9), "0.09", "x100 9")
+}
+
+func test_buyer_ok() {
+    assert_eq_int(buyer_ok("standard"), 1, "buyer_ok standard")
+    assert_eq_int(buyer_ok("first_time"), 1, "buyer_ok first_time")
+    assert_eq_int(buyer_ok("additional"), 1, "buyer_ok additional")
+    assert_eq_int(buyer_ok("bogus"), 0, "buyer_ok reject")
+    assert_eq_int(buyer_ok(""), 0, "buyer_ok empty")
+}
+
+func test_calc_report_shape() {
+    r := calc_report(600000, "standard", 0, 10, 4.5, 25, 120000, 1500, 600, 999)
+    assert(has_prefix(r, "{\"ok\":true,"), "report starts ok:true")
+    // SDLT 600k standard = 20000; appears in the JSON.
+    assert(contains(r, "\"stamp_duty\":20000"), "report has stamp_duty 20000")
+    assert(contains(r, "\"deposit\":60000"), "report has deposit 60000")
+    assert(contains(r, "\"loan\":540000"), "report has loan 540000")
+    assert(contains(r, "\"land_registry_fee\":295"), "report has LR fee 295")
+    // income multiple 540000/120000 = 4.50 -> affordable 1.
+    assert(contains(r, "\"income_multiple\":\"4.50\""), "report income multiple 4.50")
+    assert(contains(r, "\"affordable\":1"), "report affordable 1")
+}
+
+func test_calc_report_unaffordable() {
+    // Small income makes the multiple blow past 4.5x.
+    r := calc_report(600000, "standard", 0, 10, 4.5, 25, 50000, 1500, 600, 999)
+    assert(contains(r, "\"affordable\":0"), "report affordable 0 on low income")
+}
+
+func test_sig_field() {
+    h := "t=1700000000,v1=abcdef,v0=old"
+    assert_eq_str(sig_field(h, "t"), "1700000000", "sig_field t")
+    assert_eq_str(sig_field(h, "v1"), "abcdef", "sig_field v1")
+    assert_eq_str(sig_field(h, "missing"), "", "sig_field missing")
+    assert_eq_str(sig_field("", "t"), "", "sig_field empty")
+}
+
+func main() {
+    test_gbp()
+    test_sig_field()
+    test_bp_pct()
+    test_x100_str()
+    test_buyer_ok()
+    test_calc_report_shape()
+    test_calc_report_unaffordable()
+    test_summary()
+}

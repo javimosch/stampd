@@ -1,0 +1,106 @@
+// core.src — shared pure helpers + the JSON report builder for stampd.
+// Composed AFTER src/sdlt.src (it calls the engine). No I/O here either, so the report
+// builder and formatters are unit-testable via `machin test`.
+
+// gbp — format whole pounds as a UK currency string with thousands separators, e.g.
+// 1234567 -> "£1,234,567". Pure string work; used in the CLI/HTML human output.
+func gbp(n) (s) {
+    neg := 0
+    v := n
+    if v < 0 { neg = 1  v = 0 - v }
+    digits := str(v)
+    out := ""
+    cnt := 0
+    i := len(digits) - 1
+    for i >= 0 {
+        out = substr(digits, i, i+1) + out
+        cnt = cnt + 1
+        if cnt % 3 == 0 && i > 0 { out = "," + out }
+        i = i - 1
+    }
+    s = "£" + out
+    if neg == 1 { s = "-" + s }
+}
+
+// bp_pct — a basis-point integer (e.g. 333) as a percent string "3.33". Two decimals.
+func bp_pct(bp) (s) {
+    whole := bp / 100
+    frac := bp % 100
+    if frac < 0 { frac = 0 - frac }
+    fs := str(frac)
+    if len(fs) < 2 { fs = "0" + fs }
+    s = str(whole) + "." + fs
+}
+
+// x100_str — an integer-x100 value (e.g. 452) as "4.52", used for income multiples.
+func x100_str(x) (s) {
+    whole := x / 100
+    frac := x % 100
+    if frac < 0 { frac = 0 - frac }
+    fs := str(frac)
+    if len(fs) < 2 { fs = "0" + fs }
+    s = str(whole) + "." + fs
+}
+
+// buyer_ok — validate the buyer-type token accepted by the engine.
+func buyer_ok(b) (ok) {
+    ok = 0
+    if b == "standard" || b == "first_time" || b == "additional" { ok = 1 }
+}
+
+// sig_field — one key out of a Stripe-Signature header ("t=..,v1=..,v0=.."). Used by the
+// server to verify webhook HMACs; kept here so it is unit-tested with the other helpers.
+func sig_field(h, key) (v) {
+    v = ""
+    parts := split(h, ",")
+    i := 0
+    for i < len(parts) {
+        kv := split(trim(parts[i]), "=")
+        if len(kv) >= 2 && kv[0] == key { return kv[1] }
+        i = i + 1
+    }
+}
+
+// calc_report — THE shared result object, as a JSON string, produced identically by the
+// CLI and the HTTP API. All money in whole pounds; rate_pct is a float annual interest
+// rate; income is gross annual. `affordable` is 1 when the loan is within 4.5x income
+// (the common lender cap), else 0.
+func calc_report(price, buyer, non_resident, deposit_pct, rate_pct, years, gross_income, legal, survey, mortgage_fee) (out) {
+    tax := sdlt(price, buyer, non_resident)
+    eff := sdlt_effective_rate_bp(price, buyer, non_resident)
+    dep := deposit(price, deposit_pct)
+    loan := loan_amount(price, deposit_pct)
+    monthly := monthly_payment(loan, rate_pct, years)
+    lr := lr_fee(price)
+    fees := legal + survey + mortgage_fee + lr
+    cash := upfront_cash(price, buyer, non_resident, deposit_pct, legal, survey, mortgage_fee)
+    imult := income_multiple_x100(loan, gross_income)
+    afford := 0
+    if gross_income > 0 && imult <= 450 { afford = 1 }
+
+    out = "{\"ok\":true," +
+        "\"input\":{" +
+        "\"price\":" + str(price) + "," +
+        "\"buyer\":" + json(buyer) + "," +
+        "\"non_resident\":" + str(non_resident) + "," +
+        "\"deposit_pct\":" + str(deposit_pct) + "," +
+        "\"rate_pct\":" + str(rate_pct) + "," +
+        "\"years\":" + str(years) + "," +
+        "\"gross_income\":" + str(gross_income) +
+        "}," +
+        "\"result\":{" +
+        "\"stamp_duty\":" + str(tax) + "," +
+        "\"stamp_duty_effective_pct\":" + json(bp_pct(eff)) + "," +
+        "\"deposit\":" + str(dep) + "," +
+        "\"loan\":" + str(loan) + "," +
+        "\"monthly_payment\":" + str(monthly) + "," +
+        "\"land_registry_fee\":" + str(lr) + "," +
+        "\"legal_fee\":" + str(legal) + "," +
+        "\"survey_fee\":" + str(survey) + "," +
+        "\"mortgage_fee\":" + str(mortgage_fee) + "," +
+        "\"total_fees\":" + str(fees) + "," +
+        "\"total_upfront_cash\":" + str(cash) + "," +
+        "\"income_multiple\":" + json(x100_str(imult)) + "," +
+        "\"affordable\":" + str(afford) +
+        "}}"
+}

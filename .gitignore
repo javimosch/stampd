@@ -1,0 +1,5 @@
+/stampd
+/build/*.mfl
+src/assets.src
+feedback.log
+/tmp

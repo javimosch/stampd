@@ -28,7 +28,7 @@ if [ ! -f /etc/stampd/stampd.env ]; then
   RESEND_KEY=\$(sudo grep -hRE '^RESEND_API_KEY=' /etc/machin-resend-inbox 2>/dev/null | head -1 | cut -d= -f2-)
   {
     echo "STAMPD_PUBLIC_URL=https://stampd.intrane.fr"
-    echo "STAMPD_FROM=stampd <onboarding@resend.dev>"
+    echo "STAMPD_FROM=stampd <stampd@intrane.fr>"
     echo "STRIPE_SECRET_KEY=\${STRIPE_KEY}"
     echo "RESEND_API_KEY=\${RESEND_KEY}"
     echo "STRIPE_WEBHOOK_SECRET="

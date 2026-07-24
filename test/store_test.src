@@ -1,0 +1,27 @@
+// Unit tests for src/store.src — the Pro-key store (the paid entitlement).
+// Run with a throwaway DB: STAMPD_DB=/tmp/stampd_test.db machin test src/store.src test/store_test.src
+// (the test.sh harness sets STAMPD_DB and removes the file first).
+
+func test_mint_pro_key() {
+    k := mint_pro_key()
+    assert(has_prefix(k, "stmp_"), "mint_pro_key has stmp_ prefix")
+    // "stmp_" (5) + 32 hex chars (16 bytes) = 37.
+    assert_eq_int(len(k), 37, "mint_pro_key length")
+}
+
+func test_pro_key_lifecycle() {
+    // Unknown / empty keys are never valid.
+    assert_eq_int(pro_key_valid(""), 0, "empty key invalid")
+    assert_eq_int(pro_key_valid("stmp_nope"), 0, "unknown key invalid")
+    // After adding a key, it validates; a different key still does not.
+    k := mint_pro_key()
+    pro_key_add(k, "agent@agency.co.uk", "cs_test_123")
+    assert_eq_int(pro_key_valid(k), 1, "added key is valid")
+    assert_eq_int(pro_key_valid("stmp_other"), 0, "other key still invalid")
+}
+
+func main() {
+    test_mint_pro_key()
+    test_pro_key_lifecycle()
+    test_summary()
+}

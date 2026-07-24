@@ -98,6 +98,18 @@
     <div class="rows" id="rows"></div>
   </div>
 
+  <div class="card" style="border-color:#2b6fff44">
+    <div class="headline" style="color:var(--acc);font-weight:700">For estate agents — stampd Pro</div>
+    <p style="margin:8px 0 4px">Turn this into a <strong>branded client report</strong>: a print-ready
+    "Cost of Buying" one-pager carrying <em>your agency's name and contact details</em>, to hand to a
+    prospective buyer. One-off <strong>£29</strong>, unlimited reports.</p>
+    <div class="actions">
+      <button class="primary" onclick="getPro()">Get stampd Pro — £29</button>
+    </div>
+    <div class="note">You'll get a Pro key by email. Generate reports via
+      <code>POST /v1/report/branded</code> with header <code>X-Stampd-Key</code>.</div>
+  </div>
+
   <div class="foot">
     <strong>Built for agents too.</strong> stampd is agent-first: every number here is one JSON call away.
     <br>Try it: <code>curl "https://stampd.intrane.fr/api/calc?price=600000&amp;buyer=standard"</code>
@@ -154,6 +166,11 @@ async function emailReport(){
   const r=await fetch("/v1/report/email",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(Object.fromEntries(q))});
   const j=await r.json();
   alert(j.ok?("Sent to "+to+" ✓"):(j.error||"Could not send"));
+}
+async function getPro(){
+  const r=await fetch("/v1/checkout",{method:"POST"});
+  const j=await r.json();
+  if(j.ok&&j.url){window.location=j.url}else{alert(j.error||"Checkout unavailable")}
 }
 window.addEventListener("load",calc);
 </script>

@@ -18,7 +18,7 @@ PY
 mkdir -p build
 "$MACHIN" encode \
   framework/machweb.src \
-  src/sdlt.src src/core.src src/cli.src src/assets.src src/server.src \
+  src/sdlt.src src/core.src src/store.src src/cli.src src/assets.src src/server.src \
   > build/stampd.mfl
 "$MACHIN" build build/stampd.mfl -o stampd
 echo "built ./stampd"

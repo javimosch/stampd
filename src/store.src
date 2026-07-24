@@ -1,0 +1,48 @@
+// store.src — the tiny persistence behind stampd Pro: which Pro keys exist.
+// A Pro key is the paid entitlement — it is minted when a Stripe payment completes and
+// is required to generate a BRANDED client report. Everything else (the calculator, the
+// JSON API) is free and unmetered, so this store only ever holds paid keys.
+//
+// SQLite, opened per call (WAL + busy_timeout) so concurrent machweb goroutines don't
+// share a handle. Volume is tiny (a key check per branded report), so per-call open is
+// cheaper than a pool here.
+
+func store_path() (p) {
+    p = env("STAMPD_DB")
+    if p == "" { p = "stampd.db" }
+}
+
+// store_init — create the table. Idempotent; called once at startup and harmless to
+// repeat. Also used by tests against a :memory: / temp path.
+func store_init(db) {
+    sqlite_exec(db, "CREATE TABLE IF NOT EXISTS pro_keys (key TEXT PRIMARY KEY, email TEXT, session_id TEXT, created INTEGER)")
+}
+
+// mint_pro_key — a fresh Pro key token. Prefix makes it self-describing in logs/emails.
+func mint_pro_key() (k) { k = "stmp_" + to_hex(rand_bytes(16)) }
+
+// pro_key_add — record a paid key. Returns 1 on success. Opens/inits/closes its own
+// handle so it is safe to call from a request goroutine.
+func pro_key_add(key, email, sid) (ok) {
+    ok = 0
+    db := sqlite_open(store_path())
+    sqlite_exec(db, "PRAGMA busy_timeout=3000")
+    store_init(db)
+    sqlite_exec(db, "INSERT OR IGNORE INTO pro_keys (key, email, session_id, created) VALUES (?, ?, ?, 0)",
+        []string{key, email, sid})
+    sqlite_close(db)
+    ok = 1
+}
+
+// pro_key_valid — 1 if `key` is a known paid key, else 0. Empty key is never valid.
+func pro_key_valid(key) (ok) {
+    ok = 0
+    if key == "" { return ok }
+    db := sqlite_open(store_path())
+    sqlite_exec(db, "PRAGMA busy_timeout=3000")
+    store_init(db)
+    rows := sqlite_query(db, "SELECT key FROM pro_keys WHERE key = ?", []string{key})
+    sqlite_close(db)
+    // The WHERE already filters to this key, so a non-empty result array means it exists.
+    if rows != "" && rows != "[]" { ok = 1 }
+}

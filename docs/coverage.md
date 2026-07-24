@@ -6,13 +6,15 @@ Run: `./test.sh`
 
 | Suite      | Assertions | Function coverage | Threshold | Status |
 |------------|-----------:|-------------------|-----------|--------|
-| Unit       | 83         | 21/21 pure funcs = 100% | > 20% | PASS |
-| Functional | 7 checks   | all HTTP routes         | —     | PASS |
+| Unit       | 89         | pure modules 100% | > 20% | PASS |
+| Functional | 9 checks   | all HTTP routes   | —     | PASS |
 
-**Unit function coverage over the whole `src/` tree: 20/45 functions ≈ 44%.**
-The two pure modules — `src/sdlt.src` (the engine) and `src/core.src` (formatters +
-report builder) — are unit-tested at 100%. The CLI (`src/cli.src`) and HTTP server
-(`src/server.src`) are I/O-bound and covered by the functional suite instead.
+**Unit function coverage over the whole `src/` tree: ≈ 24/58 functions ≈ 41%.**
+The pure modules — `src/sdlt.src` (the engine), `src/core.src` (formatters + report
+builder), and `src/store.src` (the Pro-key store) — are unit-tested at 100%. The CLI
+(`src/cli.src`) and HTTP server (`src/server.src`) are I/O-bound and covered by the
+functional suite instead (including the Pro paywall: 402 without a key, branded HTML with
+a granted key).
 
 ## Unit tests
 

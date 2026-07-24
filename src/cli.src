@@ -81,6 +81,13 @@ func guide_text() (s) {
         "  - The additional-property surcharge does not apply below £40,000.\n" +
         "  - Estimates only; not tax, legal, or financial advice.\n" +
         "\n" +
+        "PRICING\n" +
+        "  The calculator and the JSON API are FREE and unmetered. stampd Pro (£29 one-off,\n" +
+        "  for estate agents) mints a Pro key that unlocks BRANDED client reports — a\n" +
+        "  print-ready one-pager carrying your agency's name + contact details:\n" +
+        "    POST /v1/report/branded  (header X-Stampd-Key: <key>) -> branded HTML\n" +
+        "  Buy at https://stampd.intrane.fr (the key is emailed to you).\n" +
+        "\n" +
         "OTHER COMMANDS\n" +
         "  stampd guide        this manual\n" +
         "  stampd help-json    machine-readable command + flag catalog\n" +
@@ -108,6 +115,7 @@ func help_json() (s) {
         "{\"name\":\"help-json\",\"summary\":\"this catalog\"}," +
         "{\"name\":\"version\",\"summary\":\"print version JSON\"}," +
         "{\"name\":\"feedback\",\"summary\":\"send a note to the maintainer\"}," +
+        "{\"name\":\"pro-grant\",\"summary\":\"mint a Pro key for an email (admin)\",\"args\":[\"email\"]}," +
         "{\"name\":\"serve\",\"summary\":\"run the HTTP API + hosted calculator\",\"flags\":[{\"name\":\"-port\",\"type\":\"int\",\"default\":8080}]}]," +
         "\"exit_codes\":{\"0\":\"ok\",\"80\":\"invalid input\",\"90\":\"not found\",\"100\":\"integration/upstream\",\"110\":\"internal\"}}"
 }
@@ -154,6 +162,20 @@ func do_feedback() {
     exit(0)
 }
 
+// do_pro_grant — mint + store a Pro key for an email (manual/comp grant). Uses STAMPD_DB.
+// Prints the key as JSON on stdout. Admin/local use; the paid path mints keys on the
+// Stripe webhook instead.
+func do_pro_grant() {
+    a := args()
+    email := ""
+    if len(a) >= 3 { email = a[2] }
+    if email == "" { eprint_err(80, "usage: stampd pro-grant <email>") }
+    key := mint_pro_key()
+    pro_key_add(key, email, "manual")
+    println("{\"ok\":true,\"key\":" + json(key) + ",\"email\":" + json(email) + "}")
+    exit(0)
+}
+
 // run_cli — dispatch a non-serve subcommand. Returns without acting only for "serve"
 // (handled by main, which starts the HTTP server instead).
 func run_cli() {
@@ -165,6 +187,7 @@ func run_cli() {
     if cmd == "help-json" { println(help_json())  exit(0) }
     if cmd == "version" { println("{\"version\":" + json(ver()) + "}")  exit(0) }
     if cmd == "feedback" { do_feedback() }
+    if cmd == "pro-grant" { do_pro_grant() }
     if cmd == "" || cmd == "help" || cmd == "-h" || cmd == "--help" {
         print(guide_text())
         exit(0)

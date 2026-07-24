@@ -56,6 +56,24 @@ Add `--non-resident` for the 2% non-UK-resident surcharge (stacks on any of the 
 `--price` (required) · `--buyer` · `--non-resident` · `--deposit-pct` (10) · `--rate` (4.5) ·
 `--years` (25) · `--income` · `--legal` (1500) · `--survey` (600) · `--mortgage-fee` (999).
 
+## Pricing — what's free, what's paid
+
+- **Free:** the hosted calculator and the entire JSON API (`/api/calc`) — unlimited, no key.
+  Great for buyers and for AI agents automating cost lookups.
+- **stampd Pro — £29 one-off (for estate agents):** buying it mints a **Pro key** (emailed to
+  you) that unlocks **branded client reports** — a print-ready "Cost of Buying" one-pager
+  carrying *your agency's name, agent, and contact details*, to hand to a prospective buyer.
+  The `POST /v1/report/branded` endpoint returns `402 Payment Required` without a valid
+  `X-Stampd-Key`. Keys are minted automatically by the Stripe webhook on payment (or granted
+  manually with `stampd pro-grant <email>` for comps).
+
+```sh
+curl -X POST https://stampd.intrane.fr/v1/report/branded \
+  -H 'X-Stampd-Key: stmp_...' -H 'content-type: application/json' \
+  -d '{"price":600000,"buyer":"standard","agency_name":"Camden Homes","agent_name":"Jo","phone":"020...","email":"jo@camdenhomes.co.uk"}'
+# -> a self-contained, print-to-PDF branded HTML report
+```
+
 ## HTTP API
 
 ```sh
@@ -68,8 +86,10 @@ curl "http://localhost:8080/api/calc?price=600000&buyer=standard&income=120000"
 | `GET /` | the hosted calculator (HTML) |
 | `GET\|POST /api/calc` | the full buying-cost report as JSON |
 | `POST /v1/report/email` | `{"to","price","buyer",...}` — emails the breakdown (Resend) |
+| `POST /v1/report/branded` | **Pro** — branded HTML report; needs `X-Stampd-Key` (402 without) |
+| `GET /v1/pro/verify` | is a Pro key valid? `?key=` or `X-Stampd-Key` |
 | `POST /v1/checkout` | start a Stripe Checkout session for stampd Pro |
-| `POST /v1/stripe/webhook` | Stripe webhook (HMAC-verified) |
+| `POST /v1/stripe/webhook` | Stripe webhook (HMAC) — mints + emails the Pro key on payment |
 | `GET /guide` · `GET /llms.txt` · `GET /help-json` | agent onboarding |
 | `GET /_health` | liveness |
 
@@ -82,6 +102,7 @@ curl "http://localhost:8080/api/calc?price=600000&buyer=standard&income=120000"
 | `STRIPE_SECRET_KEY` | enables `POST /v1/checkout` |
 | `STRIPE_WEBHOOK_SECRET` | verifies `POST /v1/stripe/webhook` |
 | `STAMPD_PUBLIC_URL` | base URL for checkout redirects (default the hosted domain) |
+| `STAMPD_DB` | SQLite path for the Pro-key store (default `stampd.db`) |
 
 Email and billing routes fail safe with a `503` when their key is absent, so the
 calculator and API run fine with zero configuration.

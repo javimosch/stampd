@@ -4,6 +4,8 @@ set -e
 cd "$(dirname "$0")/.."
 PORT="${PORT:-8791}"
 BIN=./stampd
+export STAMPD_DB=/tmp/stampd-func.db
+rm -f "$STAMPD_DB" "$STAMPD_DB"-wal "$STAMPD_DB"-shm
 
 $BIN serve -port "$PORT" >/tmp/stampd-func.log 2>&1 &
 SRV=$!
@@ -49,5 +51,22 @@ curl -s -X POST "http://127.0.0.1:$PORT/v1/report/email" -H 'content-type: appli
   curl -s -X POST "http://127.0.0.1:$PORT/v1/report/email" -H 'content-type: application/json' \
   -d '{"to":"a@b.com","price":600000,"buyer":"standard"}' | grep -q 'not configured' || fail "email unconfigured"
 pass "email guarded when unconfigured"
+
+# Pro gating: branded report is 402 without a valid key.
+CODE=$(curl -s -o /dev/null -w "%{http_code}" -X POST "http://127.0.0.1:$PORT/v1/report/branded" \
+  -H 'content-type: application/json' -d '{"price":600000,"buyer":"standard"}')
+[ "$CODE" = "402" ] || fail "branded without key should be 402 (got $CODE)"
+curl -s "http://127.0.0.1:$PORT/v1/pro/verify?key=stmp_bogus" | grep -q '"pro":false' || fail "verify bogus key"
+pass "Pro branded report gated (402 without key)"
+
+# Grant a key (writes to STAMPD_DB the server also reads), then the branded report is HTML.
+KEY=$($BIN pro-grant agent@agency.co.uk | grep -o 'stmp_[0-9a-f]*')
+[ -n "$KEY" ] || fail "pro-grant produced no key"
+curl -s "http://127.0.0.1:$PORT/v1/pro/verify?key=$KEY" | grep -q '"pro":true' || fail "verify granted key"
+curl -sf -X POST "http://127.0.0.1:$PORT/v1/report/branded" -H "X-Stampd-Key: $KEY" \
+  -H 'content-type: application/json' \
+  -d '{"price":600000,"buyer":"standard","agency_name":"Camden Homes","agent_name":"Jo","phone":"020 7000 0000","email":"jo@camdenhomes.co.uk"}' \
+  | grep -qi 'Camden Homes' || fail "branded report with key returns branded HTML"
+pass "Pro key unlocks branded report (agency branding present)"
 
 echo "ALL FUNCTIONAL TESTS PASSED"

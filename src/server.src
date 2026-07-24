@@ -99,6 +99,24 @@ func jval(body, path) (v) {
     }
 }
 
+// send_email — send one transactional email via Resend. Returns 1 on success, 0 on any
+// failure (missing key, provider rejection). Shared by the email-report route and the
+// Pro-key delivery on the Stripe webhook.
+func send_email(to, subject, text) (ok) {
+    ok = 0
+    key := env("RESEND_API_KEY")
+    if key == "" { return ok }
+    from := env("STAMPD_FROM")
+    if from == "" { from = "stampd <onboarding@resend.dev>" }
+    payload := "{\"from\":" + json(from) +
+        ",\"to\":[" + json(to) + "]" +
+        ",\"subject\":" + json(subject) +
+        ",\"text\":" + json(text) + "}"
+    status, _, herr := http_request("POST", "https://api.resend.com/emails",
+        []string{"authorization: Bearer " + key, "content-type: application/json"}, payload)
+    if herr == "" && status >= 200 && status < 300 { ok = 1 }
+}
+
 // email_report — POST /v1/report/email — build the report and send it via Resend.
 func email_report(req) (res) {
     to := jbody(req.body, ".to")
@@ -117,18 +135,9 @@ func email_report(req) (res) {
     report, errmsg := report_from_params(price_s, buyer, nonres_s, dep_s, rate_s, years_s, income_s)
     if errmsg != "" { return err_json("400 Bad Request", errmsg) }
 
-    key := env("RESEND_API_KEY")
-    if key == "" { return err_json("503 Service Unavailable", "email is not configured on this server") }
-    from := env("STAMPD_FROM")
-    if from == "" { from = "stampd <onboarding@resend.dev>" }
+    if env("RESEND_API_KEY") == "" { return err_json("503 Service Unavailable", "email is not configured on this server") }
     text := email_body(price_s, report)
-    payload := "{\"from\":" + json(from) +
-        ",\"to\":[" + json(to) + "]" +
-        ",\"subject\":\"Your home-buying cost breakdown — stampd\"" +
-        ",\"text\":" + json(text) + "}"
-    status, _, herr := http_request("POST", "https://api.resend.com/emails",
-        []string{"authorization: Bearer " + key, "content-type: application/json"}, payload)
-    if herr != "" || status < 200 || status >= 300 {
+    if send_email(to, "Your home-buying cost breakdown — stampd", text) == 0 {
         return err_json("502 Bad Gateway", "email provider rejected the send")
     }
     res = ok_json("{\"ok\":true,\"sent\":true,\"to\":" + json(to) + "}")
@@ -171,7 +180,111 @@ func stripe_webhook(req) (res) {
     v1 := sig_field(sig, "v1")
     if t == "" || v1 == "" { return err_json("400 Bad Request", "missing signature") }
     if hmac_sha256(secret, t + "." + req.body) != v1 { return err_json("400 Bad Request", "bad signature") }
+
+    // Fulfil a completed Pro purchase: mint a Pro key, store it, email it to the buyer.
+    etype := jbody(req.body, ".type")
+    kind := jbody(req.body, ".data.object.metadata.kind")
+    if etype == "checkout.session.completed" && kind == "pro" {
+        email := jbody(req.body, ".data.object.customer_details.email")
+        sid := jbody(req.body, ".data.object.id")
+        key := mint_pro_key()
+        pro_key_add(key, email, sid)
+        if email != "" {
+            body := "Thanks for buying stampd Pro!\n\n" +
+                "Your Pro key (keep it safe):\n\n    " + key + "\n\n" +
+                "Use it to generate branded client reports:\n" +
+                "  curl -X POST https://stampd.intrane.fr/v1/report/branded \\\n" +
+                "    -H 'X-Stampd-Key: " + key + "' -H 'content-type: application/json' \\\n" +
+                "    -d '{\"price\":600000,\"buyer\":\"standard\",\"agency_name\":\"Your Agency\",\"agent_name\":\"You\",\"phone\":\"...\",\"email\":\"you@agency.co.uk\"}'\n\n" +
+                "The response is a print-ready HTML one-pager (print to PDF) carrying your\n" +
+                "agency's name and contact details, to hand to your client.\n\n" +
+                "— https://stampd.intrane.fr\n"
+            send_email(email, "Your stampd Pro key", body)
+        }
+    }
     res = ok_json("{\"ok\":true,\"received\":true}")
+}
+
+// pro_verify — GET|POST /v1/pro/verify — is a Pro key valid? (X-Stampd-Key or ?key=)
+func pro_verify(req) (res) {
+    key := header(req, "X-Stampd-Key")
+    if key == "" { key = query(req, "key") }
+    if pro_key_valid(key) == 1 { return ok_json("{\"ok\":true,\"pro\":true}") }
+    res = ok_json("{\"ok\":true,\"pro\":false}")
+}
+
+// hesc — minimal HTML escaping for user-supplied agency branding fields.
+func hesc(s) (o) {
+    o = replace(s, "&", "&amp;")
+    o = replace(o, "<", "&lt;")
+    o = replace(o, ">", "&gt;")
+    o = replace(o, "\"", "&quot;")
+}
+
+// branded_row — one label/value line in the branded report table.
+func branded_row(k, v) (h) {
+    h = "<tr><td class=k>" + hesc(k) + "</td><td class=v>" + hesc(v) + "</td></tr>"
+}
+
+// branded_html — a self-contained, print-ready "Cost of Buying" one-pager carrying the
+// estate agent's branding. This is the paid deliverable behind stampd Pro.
+func branded_html(report, agency, agent, phone, aemail) (h) {
+    price := gbp(parse_int(jval(report, ".input.price")))
+    h = "<!doctype html><html><head><meta charset=utf-8><title>Cost of Buying — " + hesc(agency) + "</title>" +
+        "<style>body{font:15px/1.6 -apple-system,Segoe UI,Roboto,Arial,sans-serif;color:#111;max-width:720px;margin:32px auto;padding:0 20px}" +
+        "h1{margin:0 0 2px;font-size:24px}.sub{color:#666;margin:0 0 20px}" +
+        ".hero{background:#0f6fff;color:#fff;padding:18px 22px;border-radius:12px;margin:18px 0}" +
+        ".hero .big{font-size:32px;font-weight:700}" +
+        "table{width:100%;border-collapse:collapse;margin-top:10px}td{padding:9px 4px;border-bottom:1px solid #eee}" +
+        ".k{color:#555}.v{text-align:right;font-weight:600;font-variant-numeric:tabular-nums}" +
+        ".card{border:1px solid #eee;border-radius:12px;padding:18px 22px;margin-top:22px}" +
+        ".foot{color:#888;font-size:12px;margin-top:26px}@media print{.noprint{display:none}}</style></head><body>" +
+        "<h1>" + hesc(agency) + "</h1><p class=sub>Cost of Buying report &middot; prepared by " + hesc(agent) +
+        " &middot; " + hesc(phone) + " &middot; " + hesc(aemail) + "</p>" +
+        "<div class=card><div class=sub>Purchase price</div><div style='font-size:26px;font-weight:700'>" + price + "</div>" +
+        "<div class=hero><div>Total cash needed on completion</div><div class=big>" +
+        gbp(parse_int(jval(report, ".result.total_upfront_cash"))) + "</div></div>" +
+        "<table>" +
+        branded_row("Stamp Duty (SDLT)", gbp(parse_int(jval(report, ".result.stamp_duty"))) + "  (" + jval(report, ".result.stamp_duty_effective_pct") + "%)") +
+        branded_row("Deposit", gbp(parse_int(jval(report, ".result.deposit")))) +
+        branded_row("Legal / conveyancing", gbp(parse_int(jval(report, ".result.legal_fee")))) +
+        branded_row("Survey", gbp(parse_int(jval(report, ".result.survey_fee")))) +
+        branded_row("Mortgage arrangement fee", gbp(parse_int(jval(report, ".result.mortgage_fee")))) +
+        branded_row("Land Registry", gbp(parse_int(jval(report, ".result.land_registry_fee")))) +
+        branded_row("Mortgage borrowed", gbp(parse_int(jval(report, ".result.loan")))) +
+        branded_row("Monthly repayment", gbp(parse_int(jval(report, ".result.monthly_payment"))) + " / month") +
+        "</table></div>" +
+        "<p class=foot>Estimates only &mdash; not tax, legal, or financial advice. England &amp; Northern Ireland SDLT rates effective 1 April 2025. Generated by stampd &middot; stampd.intrane.fr</p>" +
+        "</body></html>"
+}
+
+// report_branded — POST /v1/report/branded — the KEY-GATED paid endpoint. Requires a
+// valid Pro key (header X-Stampd-Key). Returns a branded, print-ready HTML report.
+func report_branded(req) (res) {
+    key := header(req, "X-Stampd-Key")
+    if key == "" { key = query(req, "key") }
+    if pro_key_valid(key) == 0 {
+        return err_json("402 Payment Required", "a valid stampd Pro key is required (buy Pro at /?pro), pass it as X-Stampd-Key")
+    }
+    price_s := jbody(req.body, ".price")
+    buyer := jbody(req.body, ".buyer")
+    nonres_s := jbody(req.body, ".non_resident")
+    dep_s := jbody(req.body, ".deposit_pct")
+    rate_s := jbody(req.body, ".rate")
+    years_s := jbody(req.body, ".years")
+    income_s := jbody(req.body, ".income")
+    if dep_s == "" { dep_s = "10" }
+    if rate_s == "" { rate_s = "4.5" }
+    if years_s == "" { years_s = "25" }
+    if income_s == "" { income_s = "0" }
+    report, errmsg := report_from_params(price_s, buyer, nonres_s, dep_s, rate_s, years_s, income_s)
+    if errmsg != "" { return err_json("400 Bad Request", errmsg) }
+    agency := jbody(req.body, ".agency_name")
+    if agency == "" { agency = "Your Agency" }
+    agent := jbody(req.body, ".agent_name")
+    phone := jbody(req.body, ".phone")
+    aemail := jbody(req.body, ".email")
+    res = ok_html(branded_html(report, agency, agent, phone, aemail))
 }
 
 // feedback — POST /v1/feedback — accept an agent/user note (cli-feedback-spec sink).
@@ -193,6 +306,13 @@ func llms_txt() (s) {
         "  -> {\"ok\":true,\"input\":{...},\"result\":{stamp_duty,deposit,loan,monthly_payment,land_registry_fee,total_upfront_cash,income_multiple,affordable,...}}\n" +
         "- POST /api/calc  (same fields as a JSON body)\n" +
         "- POST /v1/report/email  {\"to\":\"a@b.com\",\"price\":600000,\"buyer\":\"standard\",...}  emails the breakdown\n\n" +
+        "## Pro (paid)\n" +
+        "The calculator + JSON API are free. stampd Pro (£29 one-off) mints a Pro key that\n" +
+        "unlocks BRANDED estate-agent reports:\n" +
+        "- POST /v1/checkout -> {\"url\":...}  Stripe Checkout; the Pro key is emailed on payment.\n" +
+        "- POST /v1/report/branded  (header X-Stampd-Key: <key>)  {price,buyer,agency_name,agent_name,phone,email}\n" +
+        "  -> a print-ready branded HTML one-pager (402 without a valid key).\n" +
+        "- GET  /v1/pro/verify?key=<key> -> {\"pro\":true|false}\n\n" +
         "## buyer types\n" +
         "standard | first_time | additional ; non_resident=1 adds the 2% surcharge.\n\n" +
         "## Learn\n" +
@@ -213,6 +333,8 @@ func handle(req) (res) {
     if p == "/api/calc" { return api_calc(req) }
     if p == "/v1/report/email" && req.method == "POST" { return email_report(req) }
     if p == "/v1/checkout" && req.method == "POST" { return checkout(req) }
+    if p == "/v1/report/branded" && req.method == "POST" { return report_branded(req) }
+    if p == "/v1/pro/verify" { return pro_verify(req) }
     if p == "/v1/stripe/webhook" && req.method == "POST" { return stripe_webhook(req) }
     if p == "/v1/feedback" && req.method == "POST" { return feedback(req) }
     res = not_found()
@@ -240,6 +362,10 @@ func main() {
     cmd := ""
     if len(a) >= 2 { cmd = a[1] }
     if cmd == "serve" {
+        db := sqlite_open(store_path())
+        sqlite_exec(db, "PRAGMA journal_mode=WAL")
+        store_init(db)
+        sqlite_close(db)
         serve(port_flag(), func(req) { return handle(req) })
         return
     }

@@ -32,16 +32,30 @@ cd "$(dirname "$0")" 2>/dev/null || true
 PROMPT_FILE="${PROMPT_FILE:-./prompt.txt}"
 TOOLS_FILE="${TOOLS_FILE:-./tools.json}"
 
+# First-impression config. Without it visitors saw a bare bubble they wouldn't
+# click, and an empty panel that didn't say what the bot was for. The greeting is
+# STATIC (no LLM call — this renders on every page view) and the chips give a
+# one-tap way in that also teaches what the bot can do.
+TITLE="Stamp duty for overseas buyers"
+GREETING="Buying UK property from abroad? I'll work out your exact stamp duty — including the 2% non-resident and 5% additional-property surcharges most calculators miss — plus the total cash you'll need on completion.
+
+What's the purchase price?"
+# Pipe-separated: these are questions, and questions contain commas.
+SUGGEST="£850,000 and I own a home abroad|Am I counted as a non-resident buyer?|First-time buyer at £600,000|What will it cost me in total?"
+OPEN_AFTER="${OPEN_AFTER:-6000}"   # ms; auto-opens once per visitor, desktop only
+
 if "$CHATSNIP" agent show "$SLUG" >/dev/null 2>&1; then
   echo "▸ updating existing agent '$SLUG'"
   "$CHATSNIP" agent update "$SLUG" -prompt-file "$PROMPT_FILE" -model "$MODEL" \
     -origin "$ORIGIN" -budget "$BUDGET" \
-    -visitor-budget "$VISITOR_BUDGET" -rate-limit "$RATE_LIMIT" >/dev/null
+    -visitor-budget "$VISITOR_BUDGET" -rate-limit "$RATE_LIMIT" \
+    -title "$TITLE" -greeting "$GREETING" -suggest "$SUGGEST" -open-after "$OPEN_AFTER" >/dev/null
 else
   echo "▸ creating agent '$SLUG'"
   "$CHATSNIP" agent create -slug "$SLUG" -name "stampd assistant" \
     -prompt-file "$PROMPT_FILE" -model "$MODEL" -origin "$ORIGIN" \
-    -budget "$BUDGET" -visitor-budget "$VISITOR_BUDGET" -rate-limit "$RATE_LIMIT" >/dev/null
+    -budget "$BUDGET" -visitor-budget "$VISITOR_BUDGET" -rate-limit "$RATE_LIMIT" \
+    -title "$TITLE" -greeting "$GREETING" -suggest "$SUGGEST" -open-after "$OPEN_AFTER" >/dev/null
 fi
 
 # Only READ-ONLY tools here, deliberately. /api/calc has no side effects. The

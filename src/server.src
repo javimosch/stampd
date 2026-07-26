@@ -153,7 +153,7 @@ func checkout(req) (res) {
     body := "mode=payment" +
         "&line_items[0][quantity]=1" +
         "&line_items[0][price_data][currency]=gbp" +
-        "&line_items[0][price_data][product_data][name]=" + url_encode("stampd Pro — unlimited branded reports + API") +
+        "&line_items[0][price_data][product_data][name]=" + url_encode("stampd Pro — branded client reports for international-buyer specialists") +
         "&line_items[0][price_data][unit_amount]=2900" +
         "&success_url=" + url_encode(base + "/?pro=ok&sid={CHECKOUT_SESSION_ID}") +
         "&cancel_url=" + url_encode(base + "/") +
@@ -199,9 +199,9 @@ func stripe_webhook(req) (res) {
                     "Use it to generate branded client reports:\n" +
                     "  curl -X POST https://stampd.intrane.fr/v1/report/branded \\\n" +
                     "    -H 'X-Stampd-Key: " + key + "' -H 'content-type: application/json' \\\n" +
-                    "    -d '{\"price\":600000,\"buyer\":\"standard\",\"agency_name\":\"Your Agency\",\"agent_name\":\"You\",\"phone\":\"...\",\"email\":\"you@agency.co.uk\"}'\n\n" +
+                    "    -d '{\"price\":850000,\"buyer\":\"standard\",\"non_resident\":\"1\",\"agency_name\":\"Your Firm\",\"agent_name\":\"You\",\"phone\":\"...\",\"email\":\"you@yourfirm.co.uk\"}'\n\n" +
                     "The response is a print-ready HTML one-pager (print to PDF) carrying your\n" +
-                    "agency's name and contact details, to hand to your client.\n\n" +
+                    "firm's name and contact details, to send a client before they commit.\n\n" +
                     "— https://stampd.intrane.fr\n"
                 send_email(email, "Your stampd Pro key", body)
             }
@@ -303,17 +303,20 @@ func feedback(req) (res) {
 
 func llms_txt() (s) {
     s = "# stampd\n" +
-        "> The true cost of buying a UK home (England & Northern Ireland): Stamp Duty (SDLT)\n" +
-        "> plus deposit, legal, survey, Land Registry, mortgage repayment and total cash on\n" +
-        "> completion. Agent-first JSON API. SDLT rates effective 1 April 2025.\n\n" +
+        "> The true cost of buying UK property (England & Northern Ireland), with a focus on\n" +
+        "> OVERSEAS / NON-UK-RESIDENT buyers of London property: the 2% non-resident SDLT\n" +
+        "> surcharge, its stacking with the additional-property surcharge, plus deposit,\n" +
+        "> legal, survey, Land Registry, mortgage repayment and total cash on completion.\n" +
+        "> Agent-first JSON API. SDLT rates effective 1 April 2025.\n\n" +
         "## API\n" +
-        "- GET /api/calc?price=600000&buyer=standard&deposit_pct=10&rate=4.5&years=25&income=120000&non_resident=0\n" +
+        "- GET /api/calc?price=850000&buyer=standard&deposit_pct=25&rate=4.5&years=25&income=0&non_resident=1\n" +
         "  -> {\"ok\":true,\"input\":{...},\"result\":{stamp_duty,deposit,loan,monthly_payment,land_registry_fee,total_upfront_cash,income_multiple,affordable,...}}\n" +
         "- POST /api/calc  (same fields as a JSON body)\n" +
-        "- POST /v1/report/email  {\"to\":\"a@b.com\",\"price\":600000,\"buyer\":\"standard\",...}  emails the breakdown\n\n" +
+        "- POST /v1/report/email  {\"to\":\"a@b.com\",\"price\":850000,\"buyer\":\"standard\",\"non_resident\":\"1\",...}  emails the breakdown\n\n" +
         "## Pro (paid)\n" +
-        "The calculator + JSON API are free. stampd Pro (£29 one-off) mints a Pro key that\n" +
-        "unlocks BRANDED estate-agent reports:\n" +
+        "The calculator + JSON API are free. stampd Pro (£29 one-off, for relocation\n" +
+        "consultants / international-buyer specialist agencies) mints a Pro key that\n" +
+        "unlocks BRANDED client reports:\n" +
         "- POST /v1/checkout -> {\"url\":...}  Stripe Checkout; the Pro key is emailed on payment.\n" +
         "- POST /v1/report/branded  (header X-Stampd-Key: <key>)  {price,buyer,agency_name,agent_name,phone,email}\n" +
         "  -> a print-ready branded HTML one-pager (402 without a valid key).\n" +

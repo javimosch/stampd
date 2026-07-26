@@ -41,7 +41,10 @@ func has_flag(name) (ok) {
 // guide_text — the in-binary operating manual (the model, the loop, the concepts, the
 // gotchas). An agent learns stampd once from this, no external docs.
 func guide_text() (s) {
-    s = "stampd — the true cost of buying a UK home (England & N. Ireland).\n" +
+    s = "stampd — the true cost of buying UK property (England & N. Ireland), with a focus\n" +
+        "on OVERSEAS / NON-UK-RESIDENT buyers of London property, where the 2% non-resident\n" +
+        "SDLT surcharge and its stacking with the additional-property surcharge are the two\n" +
+        "numbers generic calculators most often get wrong or omit.\n" +
         "\n" +
         "THE MODEL\n" +
         "  You give a purchase price and a buyer profile; stampd returns every upfront cost:\n" +
@@ -83,8 +86,9 @@ func guide_text() (s) {
         "\n" +
         "PRICING\n" +
         "  The calculator and the JSON API are FREE and unmetered. stampd Pro (£29 one-off,\n" +
-        "  for estate agents) mints a Pro key that unlocks BRANDED client reports — a\n" +
-        "  print-ready one-pager carrying your agency's name + contact details:\n" +
+        "  for relocation consultants / international-buyer specialist agencies) mints a\n" +
+        "  Pro key that unlocks BRANDED client reports — a print-ready one-pager carrying\n" +
+        "  your firm's name + contact details:\n" +
         "    POST /v1/report/branded  (header X-Stampd-Key: <key>) -> branded HTML\n" +
         "  Buy at https://stampd.intrane.fr (the key is emailed to you).\n" +
         "\n" +
@@ -98,7 +102,7 @@ func guide_text() (s) {
 
 func help_json() (s) {
     s = "{\"tool\":\"stampd\",\"version\":" + json(ver()) + "," +
-        "\"description\":\"UK property buying-cost engine: SDLT + all upfront costs.\"," +
+        "\"description\":\"UK property buying-cost engine for overseas/non-resident buyers: SDLT (incl. the 2% non-resident surcharge) + all upfront costs.\"," +
         "\"commands\":[" +
         "{\"name\":\"calc\",\"summary\":\"compute the full buying-cost report as JSON\",\"flags\":[" +
         "{\"name\":\"--price\",\"type\":\"int\",\"required\":true,\"desc\":\"purchase price in GBP\"}," +

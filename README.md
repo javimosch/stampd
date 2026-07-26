@@ -1,19 +1,24 @@
 # stampd
 
-**The true cost of buying a UK home — Stamp Duty and every other fee, in one number.**
+**Stamp duty for overseas buyers of London property — the 2% non-resident surcharge, done right.**
 
-stampd is a tiny, agent-first micro-SaaS for the UK (England & Northern Ireland) property
-market. Give it a purchase price and a buyer profile; it returns everything a London buyer
-actually needs to budget for: **Stamp Duty (SDLT)**, deposit, legal & survey fees, Land
-Registry, the monthly mortgage repayment, and the **total cash needed on completion day** —
-plus a 4.5×-income affordability flag.
+stampd is a tiny, agent-first micro-SaaS for UK (England & Northern Ireland) property costs,
+focused on the case generic calculators handle worst: an **overseas / non-UK-resident buyer**
+of a London property. Give it a purchase price and a buyer profile; it returns everything a
+buyer actually needs to budget for: **Stamp Duty (SDLT)** — including the **2% non-resident
+surcharge and its stacking with the additional-property surcharge** — deposit, legal & survey
+fees, Land Registry, the monthly mortgage repayment, and the **total cash needed on
+completion day**.
 
+- 🌍 **Built for the non-resident case** — the 2% surcharge, its £40k threshold, and its
+  stacking with the buy-to-let surcharge (up to 19% on the top slice) — the numbers generic
+  UK calculators most often omit or get wrong.
 - 🧮 **Deterministic engine** — SDLT rates effective **1 April 2025**, cross-checked against
   the official gov.uk calculator.
 - 🤖 **Agent-first** — JSON on stdout, semantic exit codes, a built-in `guide`, `help-json`,
   and `/llms.txt`. Built to the conventions at <https://cli-specs.intrane.fr/>.
-- 👤 **Non-technical hosted calculator** — a clean web UI where a buyer or estate agent gets
-  the full breakdown and can email themselves a report.
+- 👤 **Non-technical hosted calculator** — a clean web UI for a buyer, or for a relocation
+  consultant / international-buyer specialist advising one.
 - 📦 **One static binary** — HTTP server + CLI in the same program. Pure
   [machin](https://github.com/javimosch/machin) (MFL). No Node, no ORM, no runtime deps.
 
@@ -59,18 +64,19 @@ Add `--non-resident` for the 2% non-UK-resident surcharge (stacks on any of the 
 ## Pricing — what's free, what's paid
 
 - **Free:** the hosted calculator and the entire JSON API (`/api/calc`) — unlimited, no key.
-  Great for buyers and for AI agents automating cost lookups.
-- **stampd Pro — £29 one-off (for estate agents):** buying it mints a **Pro key** (emailed to
-  you) that unlocks **branded client reports** — a print-ready "Cost of Buying" one-pager
-  carrying *your agency's name, agent, and contact details*, to hand to a prospective buyer.
-  The `POST /v1/report/branded` endpoint returns `402 Payment Required` without a valid
-  `X-Stampd-Key`. Keys are minted automatically by the Stripe webhook on payment (or granted
-  manually with `stampd pro-grant <email>` for comps).
+  Great for overseas buyers and for AI agents automating cost lookups.
+- **stampd Pro — £29 one-off (for relocation consultants / international-buyer specialist
+  agencies):** buying it mints a **Pro key** (emailed to you) that unlocks **branded client
+  reports** — a print-ready "Cost of Buying" one-pager carrying *your firm's name, agent, and
+  contact details*, to send a client before they commit. The `POST /v1/report/branded`
+  endpoint returns `402 Payment Required` without a valid `X-Stampd-Key`. Keys are minted
+  automatically by the Stripe webhook on payment (or granted manually with
+  `stampd pro-grant <email>` for comps).
 
 ```sh
 curl -X POST https://stampd.intrane.fr/v1/report/branded \
   -H 'X-Stampd-Key: stmp_...' -H 'content-type: application/json' \
-  -d '{"price":600000,"buyer":"standard","agency_name":"Camden Homes","agent_name":"Jo","phone":"020...","email":"jo@camdenhomes.co.uk"}'
+  -d '{"price":850000,"buyer":"standard","non_resident":"1","agency_name":"Camden Relocation","agent_name":"Jo","phone":"020...","email":"jo@camdenrelocation.co.uk"}'
 # -> a self-contained, print-to-PDF branded HTML report
 ```
 

@@ -32,9 +32,28 @@ func test_pro_session_seen() {
     assert_eq_int(pro_session_seen("cs_test_dup"), 1, "still seen on repeat check")
 }
 
+func test_usage_check_and_incr() {
+    // limit<=0 disables the check entirely: always ok, regardless of history.
+    assert_eq_int(usage_check_and_incr("9.9.9.9", 0, 1000), 1, "usage disabled (limit 0) always ok")
+
+    // A limit of 2: first two calls ok, third denied, same ip+day.
+    assert_eq_int(usage_check_and_incr("1.1.1.1", 2, 5000000), 1, "usage call 1/2 ok")
+    assert_eq_int(usage_check_and_incr("1.1.1.1", 2, 5000001), 1, "usage call 2/2 ok (same day)")
+    assert_eq_int(usage_check_and_incr("1.1.1.1", 2, 5000002), 0, "usage call 3/2 denied")
+    // still denied — a denied call must not have incremented the counter past the cap.
+    assert_eq_int(usage_check_and_incr("1.1.1.1", 2, 5000003), 0, "usage still denied on repeat")
+
+    // A different IP has its own independent bucket.
+    assert_eq_int(usage_check_and_incr("2.2.2.2", 2, 5000000), 1, "usage different ip independent")
+
+    // A later day (>=86400s later) resets the bucket for the same ip.
+    assert_eq_int(usage_check_and_incr("1.1.1.1", 2, 5000000 + 86400), 1, "usage resets on a new day")
+}
+
 func main() {
     test_mint_pro_key()
     test_pro_key_lifecycle()
     test_pro_session_seen()
+    test_usage_check_and_incr()
     test_summary()
 }

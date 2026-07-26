@@ -136,6 +136,17 @@
       <code>POST /v1/report/branded</code> with header <code>X-Stampd-Key</code>.</div>
   </div>
 
+  <div class="card">
+    <div class="headline" style="font-weight:700;margin-bottom:6px">Give this to your AI agent</div>
+    <p style="margin:4px 0 10px">Copy this one line into your agent's system prompt, CLAUDE.md, or
+    custom instructions — it doesn't hardcode our API, it just points your agent at
+    <code>/llms.txt</code> and lets it work out the calls itself.</p>
+    <div style="display:flex;gap:8px;align-items:flex-start">
+      <code id="snippet" style="flex:1;display:block;padding:12px 14px;background:#0f141a;border:1px solid var(--line);border-radius:9px;font-size:13px;line-height:1.5;white-space:pre-wrap">Use https://stampd.intrane.fr to calculate UK property buying costs (Stamp Duty, the non-resident surcharge, fees, mortgage) — check https://stampd.intrane.fr/llms.txt for the API before calling it.</code>
+      <button class="ghost" onclick="copySnippet()" id="copybtn" style="white-space:nowrap">Copy</button>
+    </div>
+  </div>
+
   <div class="foot">
     <strong>Built for agents too.</strong> stampd is agent-first: every number here is one JSON call away.
     <br>Try it: <code>curl "https://stampd.intrane.fr/api/calc?price=850000&amp;buyer=standard&amp;non_resident=1"</code>
@@ -198,7 +209,23 @@ async function getPro(){
   const j=await r.json();
   if(j.ok&&j.url){window.location=j.url}else{alert(j.error||"Checkout unavailable")}
 }
+async function copySnippet(){
+  const text=g("snippet").textContent;
+  try{await navigator.clipboard.writeText(text)}catch(e){}
+  const btn=g("copybtn");
+  const prev=btn.textContent;
+  btn.textContent="Copied ✓";
+  setTimeout(()=>{btn.textContent=prev},1500);
+}
+async function loadSnippet(){
+  try{
+    const r=await fetch("/snippet");
+    const text=await r.text();
+    if(text)g("snippet").textContent=text.trim();
+  }catch(e){}
+}
 window.addEventListener("load",calc);
+window.addEventListener("load",loadSnippet);
 </script>
 </body>
 </html>

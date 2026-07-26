@@ -84,16 +84,27 @@ func guide_text() (s) {
         "  - The additional-property surcharge does not apply below £40,000.\n" +
         "  - Estimates only; not tax, legal, or financial advice.\n" +
         "\n" +
+        "FREE-USE LIMIT\n" +
+        "  /api/calc and /v1/report/email are free and unmetered up to a generous per-IP\n" +
+        "  daily ceiling (default 200/day) — an anti-abuse guard, not a paywall. Past it,\n" +
+        "  both return 429. self-hosting removes the ceiling entirely (it's OSS).\n" +
+        "\n" +
         "PRICING\n" +
-        "  The calculator and the JSON API are FREE and unmetered. stampd Pro (£29 one-off,\n" +
-        "  for relocation consultants / international-buyer specialist agencies) mints a\n" +
-        "  Pro key that unlocks BRANDED client reports — a print-ready one-pager carrying\n" +
-        "  your firm's name + contact details:\n" +
-        "    POST /v1/report/branded  (header X-Stampd-Key: <key>) -> branded HTML\n" +
+        "  The calculator and the JSON API are FREE. stampd Pro (£29 one-off, for relocation\n" +
+        "  consultants / international-buyer specialist agencies) mints a Pro key that\n" +
+        "  unlocks BRANDED client reports — published to hart.intrane.fr as a live, shareable\n" +
+        "  link carrying your firm's name + contact details:\n" +
+        "    POST /v1/report/branded  (header X-Stampd-Key: <key>) -> {\"ok\":true,\"url\":...}\n" +
         "  Buy at https://stampd.intrane.fr (the key is emailed to you).\n" +
+        "\n" +
+        "ONBOARDING AN AGENT\n" +
+        "  `stampd snippet` (or GET /snippet) prints one line to paste into an agent's system\n" +
+        "  prompt / CLAUDE.md / custom instructions, so the agent starts using stampd on its\n" +
+        "  own — it discovers the actual API from /llms.txt itself, nothing to hardcode.\n" +
         "\n" +
         "OTHER COMMANDS\n" +
         "  stampd guide        this manual\n" +
+        "  stampd snippet      the one-line agent-onboarding snippet\n" +
         "  stampd help-json    machine-readable command + flag catalog\n" +
         "  stampd version      { \"version\": ... }\n" +
         "  stampd feedback \"msg\"   send a note to the maintainer\n" +
@@ -116,6 +127,7 @@ func help_json() (s) {
         "{\"name\":\"--survey\",\"type\":\"int\",\"default\":600}," +
         "{\"name\":\"--mortgage-fee\",\"type\":\"int\",\"default\":999}]}," +
         "{\"name\":\"guide\",\"summary\":\"print the operating manual\"}," +
+        "{\"name\":\"snippet\",\"summary\":\"print the one-line agent-onboarding snippet (paste into CLAUDE.md / a system prompt)\"}," +
         "{\"name\":\"help-json\",\"summary\":\"this catalog\"}," +
         "{\"name\":\"version\",\"summary\":\"print version JSON\"}," +
         "{\"name\":\"feedback\",\"summary\":\"send a note to the maintainer\"}," +
@@ -192,6 +204,7 @@ func run_cli() {
     if cmd == "version" { println("{\"version\":" + json(ver()) + "}")  exit(0) }
     if cmd == "feedback" { do_feedback() }
     if cmd == "pro-grant" { do_pro_grant() }
+    if cmd == "snippet" { println(onboarding_snippet())  exit(0) }
     if cmd == "" || cmd == "help" || cmd == "-h" || cmd == "--help" {
         print(guide_text())
         exit(0)

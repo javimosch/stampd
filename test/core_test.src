@@ -50,6 +50,27 @@ func test_calc_report_unaffordable() {
     assert(contains(r, "\"affordable\":0"), "report affordable 0 on low income")
 }
 
+func test_unq_json() {
+    assert_eq_str(unq_json("\"hello\""), "hello", "unq_json quoted")
+    assert_eq_str(unq_json("hello"), "hello", "unq_json unquoted")
+    assert_eq_str(unq_json("42"), "42", "unq_json number passthrough")
+    assert_eq_str(unq_json(""), "", "unq_json empty")
+}
+
+func test_day_bucket() {
+    assert_eq_int(day_bucket(0), 0, "day_bucket epoch")
+    assert_eq_int(day_bucket(86399), 0, "day_bucket just under a day")
+    assert_eq_int(day_bucket(86400), 1, "day_bucket exactly one day")
+    assert_eq_int(day_bucket(1785044712), 20660, "day_bucket a real recent timestamp")
+}
+
+func test_onboarding_snippet() {
+    s := onboarding_snippet()
+    assert(has_prefix(s, "Use https://stampd.intrane.fr"), "snippet starts with the site URL")
+    assert(contains(s, "llms.txt"), "snippet points the agent at llms.txt")
+    assert(contains(s, "non-resident"), "snippet mentions the non-resident surcharge")
+}
+
 func test_sig_field() {
     h := "t=1700000000,v1=abcdef,v0=old"
     assert_eq_str(sig_field(h, "t"), "1700000000", "sig_field t")
@@ -60,6 +81,9 @@ func test_sig_field() {
 
 func main() {
     test_gbp()
+    test_unq_json()
+    test_day_bucket()
+    test_onboarding_snippet()
     test_sig_field()
     test_bp_pct()
     test_x100_str()

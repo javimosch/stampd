@@ -18,11 +18,7 @@ func qdef(req, name, def) (v) {
 func jbody(body, path) (v) {
     raw, err := json_get(body, path)
     v = ""
-    if err == "" {
-        v = raw
-        n := len(v)
-        if n >= 2 { if substr(v, 0, 1) == "\"" { v = substr(v, 1, n-1) } }
-    }
+    if err == "" { v = unq_json(raw) }
 }
 
 // report_from_params — validate the 7 calc inputs (as strings) and return the shared
@@ -46,8 +42,24 @@ func report_from_params(price_s, buyer, nonres_s, dep_s, rate_s, years_s, income
     out = calc_report(price, buyer, nonres, dep, rate, years, income, 1500, 600, 999)
 }
 
+// daily_limit — the free-use ceiling (per IP per day), across /api/calc and
+// /v1/report/email. Not a monetization cap — the calc is free compute; this exists so a
+// runaway or malicious client can't hammer the server. STAMPD_DAILY_LIMIT<=0 disables it.
+func daily_limit() (n) {
+    n = 200
+    v := env("STAMPD_DAILY_LIMIT")
+    if v != "" { n = parse_int(v) }
+}
+
+// quota_gate — 1 if this request is under today's free-use ceiling for its IP (and counts
+// it), else 0 (a 429 should be returned without counting the denied call).
+func quota_gate(req) (ok) { ok = usage_check_and_incr(client_ip(req), daily_limit(), now()) }
+
 // api_calc — GET|POST /api/calc — the agent-first JSON endpoint.
 func api_calc(req) (res) {
+    if quota_gate(req) == 0 {
+        return err_json("429 Too Many Requests", "free-use limit reached (" + str(daily_limit()) + "/day per IP) — try again tomorrow, or self-host: github.com/javimosch/stampd")
+    }
     price_s := qdef(req, "price", "")
     buyer := qdef(req, "buyer", "standard")
     nonres_s := qdef(req, "non_resident", "0")
@@ -92,11 +104,7 @@ func email_body(price_s, report) (b) {
 func jval(body, path) (v) {
     raw, err := json_get(body, path)
     v = ""
-    if err == "" {
-        v = raw
-        n := len(v)
-        if n >= 2 { if substr(v, 0, 1) == "\"" { v = substr(v, 1, n-1) } }
-    }
+    if err == "" { v = unq_json(raw) }
 }
 
 // send_email — send one transactional email via Resend. Returns 1 on success, 0 on any
@@ -119,6 +127,9 @@ func send_email(to, subject, text) (ok) {
 
 // email_report — POST /v1/report/email — build the report and send it via Resend.
 func email_report(req) (res) {
+    if quota_gate(req) == 0 {
+        return err_json("429 Too Many Requests", "free-use limit reached (" + str(daily_limit()) + "/day per IP) — try again tomorrow, or self-host: github.com/javimosch/stampd")
+    }
     to := jbody(req.body, ".to")
     if to == "" || index(to, "@") < 0 { return err_json("400 Bad Request", "a valid 'to' email is required") }
     price_s := jbody(req.body, ".price")
@@ -263,8 +274,31 @@ func branded_html(report, agency, agent, phone, aemail) (h) {
         "</body></html>"
 }
 
+// hart_publish — publish self-contained HTML to hart.intrane.fr under the "stampd" owner
+// namespace (claimed with HART_OWNER_KEY) and return its live shareable URL. `errmsg` is
+// non-empty on any failure (not configured, transport error, bad response) — the caller
+// falls back to returning the HTML directly rather than failing the request.
+func hart_publish(html, title) (url, errmsg) {
+    url = ""
+    errmsg = ""
+    key := env("HART_OWNER_KEY")
+    if key == "" { errmsg = "hart not configured"  return }
+    base := env("HART_URL")
+    if base == "" { base = "https://hart.intrane.fr" }
+    slug := "report-" + to_hex(rand_bytes(5))
+    u := base + "/v1/publish?owner=stampd&artifact=" + slug + "&visibility=unlisted&title=" + url_encode(title)
+    status, resp, herr := http_request("POST", u, []string{"x-hart-owner-key: " + key, "content-type: text/html"}, html)
+    if herr != "" || status < 200 || status >= 300 { errmsg = "hart publish failed"  return }
+    raw, gerr := json_get(resp, ".url")
+    if gerr != "" { errmsg = "hart response missing url"  return }
+    url = unq_json(raw)
+}
+
 // report_branded — POST /v1/report/branded — the KEY-GATED paid endpoint. Requires a
-// valid Pro key (header X-Stampd-Key). Returns a branded, print-ready HTML report.
+// valid Pro key (header X-Stampd-Key). Publishes the branded report to hart and returns
+// its live shareable URL — a link the caller can text/email a client, instead of an HTML
+// blob they must save and print-to-PDF themselves. Falls back to returning the HTML
+// directly if hart isn't configured or the publish call fails.
 func report_branded(req) (res) {
     key := header(req, "X-Stampd-Key")
     if key == "" { key = query(req, "key") }
@@ -289,7 +323,10 @@ func report_branded(req) (res) {
     agent := jbody(req.body, ".agent_name")
     phone := jbody(req.body, ".phone")
     aemail := jbody(req.body, ".email")
-    res = ok_html(branded_html(report, agency, agent, phone, aemail))
+    html := branded_html(report, agency, agent, phone, aemail)
+    url, herr := hart_publish(html, agency + " — Cost of Buying")
+    if herr == "" { return ok_json("{\"ok\":true,\"url\":" + json(url) + ",\"format\":\"hart\"}") }
+    res = ok_html(html)
 }
 
 // feedback — POST /v1/feedback — accept an agent/user note (cli-feedback-spec sink).
@@ -313,18 +350,25 @@ func llms_txt() (s) {
         "  -> {\"ok\":true,\"input\":{...},\"result\":{stamp_duty,deposit,loan,monthly_payment,land_registry_fee,total_upfront_cash,income_multiple,affordable,...}}\n" +
         "- POST /api/calc  (same fields as a JSON body)\n" +
         "- POST /v1/report/email  {\"to\":\"a@b.com\",\"price\":850000,\"buyer\":\"standard\",\"non_resident\":\"1\",...}  emails the breakdown\n\n" +
+        "Both routes above are free up to a generous per-IP daily ceiling (default 200/day,\n" +
+        "anti-abuse only, not a paywall) — past it they return 429. Self-hosting (OSS) has\n" +
+        "no ceiling.\n\n" +
         "## Pro (paid)\n" +
         "The calculator + JSON API are free. stampd Pro (£29 one-off, for relocation\n" +
         "consultants / international-buyer specialist agencies) mints a Pro key that\n" +
         "unlocks BRANDED client reports:\n" +
         "- POST /v1/checkout -> {\"url\":...}  Stripe Checkout; the Pro key is emailed on payment.\n" +
         "- POST /v1/report/branded  (header X-Stampd-Key: <key>)  {price,buyer,agency_name,agent_name,phone,email}\n" +
-        "  -> a print-ready branded HTML one-pager (402 without a valid key).\n" +
+        "  -> {\"ok\":true,\"url\":...} — a live hart.intrane.fr link to the branded report\n" +
+        "  (falls back to the raw HTML if hart is unreachable). 402 without a valid key.\n" +
         "- GET  /v1/pro/verify?key=<key> -> {\"pro\":true|false}\n\n" +
         "## buyer types\n" +
         "standard | first_time | additional ; non_resident=1 adds the 2% surcharge.\n\n" +
+        "## Onboarding an agent\n" +
+        "GET /snippet — one line to paste into an agent's system prompt / CLAUDE.md, so it\n" +
+        "starts using stampd on its own (it reads this file itself; nothing to hardcode).\n\n" +
         "## Learn\n" +
-        "GET /guide — full operating manual. CLI: `stampd guide` / `stampd help-json`.\n"
+        "GET /guide — full operating manual. CLI: `stampd guide` / `stampd snippet` / `stampd help-json`.\n"
 }
 
 // handle — the router.
@@ -336,6 +380,7 @@ func handle(req) (res) {
     if p == "/_health" { return ok_json("{\"ok\":true,\"service\":\"stampd\",\"version\":\"" + ver() + "\"}") }
     if p == "/" || p == "/index.html" { return ok_html(landing_html()) }
     if p == "/guide" { return ok_text(guide_text()) }
+    if p == "/snippet" { return ok_text(onboarding_snippet()) }
     if p == "/llms.txt" { return ok_text(llms_txt()) }
     if p == "/help-json" { return ok_json(help_json()) }
     if p == "/api/calc" { return api_calc(req) }

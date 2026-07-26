@@ -33,9 +33,14 @@ if [ ! -f /etc/stampd/stampd.env ]; then
     echo "STRIPE_SECRET_KEY=\${STRIPE_KEY}"
     echo "RESEND_API_KEY=\${RESEND_KEY}"
     echo "STRIPE_WEBHOOK_SECRET="
+    echo "HART_URL=https://hart.intrane.fr"
+    echo "HART_OWNER_KEY="
+    echo "STAMPD_DAILY_LIMIT=200"
   } | sudo tee /etc/stampd/stampd.env >/dev/null
   sudo chmod 640 /etc/stampd/stampd.env
   echo "  wrote /etc/stampd/stampd.env (stripe=\${STRIPE_KEY:+set} resend=\${RESEND_KEY:+set})"
+  echo "  HART_OWNER_KEY is blank -- claim the stampd owner namespace on hart, then set it"
+  echo "  there. See docs/hart-integration.md. Until set, branded reports fall back to HTML."
 fi
 sudo install -m0755 /tmp/stampd.new $DIR/stampd
 sudo install -m0644 /tmp/stampd.service /etc/systemd/system/$SVC

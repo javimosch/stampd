@@ -12,10 +12,37 @@ func store_path() (p) {
     if p == "" { p = "stampd.db" }
 }
 
-// store_init — create the table. Idempotent; called once at startup and harmless to
+// store_init — create the tables. Idempotent; called once at startup and harmless to
 // repeat. Also used by tests against a :memory: / temp path.
 func store_init(db) {
     sqlite_exec(db, "CREATE TABLE IF NOT EXISTS pro_keys (key TEXT PRIMARY KEY, email TEXT, session_id TEXT, created INTEGER)")
+    sqlite_exec(db, "CREATE TABLE IF NOT EXISTS api_usage (ip TEXT, day INTEGER, count INTEGER, PRIMARY KEY(ip, day))")
+}
+
+// usage_check_and_incr — the free-use ceiling for the unmetered API/email routes. Not a
+// monetization cap (the calc engine costs nothing to run) — it's an anti-abuse ceiling so
+// a runaway/malicious client can't hammer the server or the Resend send quota. `limit<=0`
+// disables the check entirely. Returns 1 and increments the counter if under the limit
+// (so a caller who is denied doesn't also get counted), else 0 without incrementing.
+func usage_check_and_incr(ip, limit, ts) (ok) {
+    ok = 1
+    if limit <= 0 { return ok }
+    day := day_bucket(ts)
+    db := sqlite_open(store_path())
+    sqlite_exec(db, "PRAGMA busy_timeout=3000")
+    store_init(db)
+    rows := sqlite_query(db, "SELECT count FROM api_usage WHERE ip = ? AND day = ?", []string{ip, str(day)})
+    cnt := 0
+    craw, cerr := json_get(rows, "[0].count")
+    if cerr == "" { cnt = parse_int(craw) }
+    if cnt >= limit {
+        sqlite_close(db)
+        ok = 0
+        return ok
+    }
+    sqlite_exec(db, "INSERT INTO api_usage(ip,day,count) VALUES(?,?,1) ON CONFLICT(ip,day) DO UPDATE SET count=count+1",
+        []string{ip, str(day)})
+    sqlite_close(db)
 }
 
 // mint_pro_key — a fresh Pro key token. Prefix makes it self-describing in logs/emails.

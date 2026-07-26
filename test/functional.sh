@@ -38,12 +38,13 @@ pass "api/calc additional"
 curl -s "http://127.0.0.1:$PORT/api/calc?price=0" | grep -q '"ok":false' || fail "calc bad input"
 pass "api/calc validation"
 
-# landing HTML + guide + llms.txt
+# landing HTML + guide + llms.txt + snippet
 curl -sf "http://127.0.0.1:$PORT/" | grep -qi 'stampd' || fail "landing"
 curl -sf "http://127.0.0.1:$PORT/guide" | grep -q 'BUYER TYPES' || fail "guide"
 curl -sf "http://127.0.0.1:$PORT/llms.txt" | grep -q '/api/calc' || fail "llms.txt"
 curl -sf "http://127.0.0.1:$PORT/help-json" | grep -q '"tool":"stampd"' || fail "help-json"
-pass "landing + guide + llms + help-json"
+curl -sf "http://127.0.0.1:$PORT/snippet" | grep -q 'llms.txt' || fail "snippet"
+pass "landing + guide + llms + help-json + snippet"
 
 # email without config -> 503 (not configured)
 curl -s -X POST "http://127.0.0.1:$PORT/v1/report/email" -H 'content-type: application/json' \
@@ -68,5 +69,19 @@ curl -sf -X POST "http://127.0.0.1:$PORT/v1/report/branded" -H "X-Stampd-Key: $K
   -d '{"price":600000,"buyer":"standard","agency_name":"Camden Homes","agent_name":"Jo","phone":"020 7000 0000","email":"jo@camdenhomes.co.uk"}' \
   | grep -qi 'Camden Homes' || fail "branded report with key returns branded HTML"
 pass "Pro key unlocks branded report (agency branding present)"
+
+# Free-use daily ceiling: a second server on a tiny limit, isolated port + DB.
+QPORT=$((PORT + 1))
+export STAMPD_DB=/tmp/stampd-func-quota.db
+rm -f "$STAMPD_DB" "$STAMPD_DB"-wal "$STAMPD_DB"-shm
+STAMPD_DAILY_LIMIT=2 $BIN serve -port "$QPORT" >/tmp/stampd-func-quota.log 2>&1 &
+QSRV=$!
+trap "kill $SRV $QSRV 2>/dev/null || true" EXIT
+sleep 1
+curl -s -o /dev/null -w "" "http://127.0.0.1:$QPORT/api/calc?price=600000" # call 1/2
+curl -s -o /dev/null -w "" "http://127.0.0.1:$QPORT/api/calc?price=600000" # call 2/2
+CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$QPORT/api/calc?price=600000") # 3rd -> 429
+[ "$CODE" = "429" ] || fail "3rd call past STAMPD_DAILY_LIMIT=2 should be 429 (got $CODE)"
+pass "free-use daily ceiling returns 429 past the limit"
 
 echo "ALL FUNCTIONAL TESTS PASSED"

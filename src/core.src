@@ -48,6 +48,28 @@ func buyer_ok(b) (ok) {
     if b == "standard" || b == "first_time" || b == "additional" { ok = 1 }
 }
 
+// unq_json — strip the surrounding quotes from a raw JSON string token ("Ada" -> Ada).
+// Non-string tokens (numbers, already-bare text) pass through unchanged.
+func unq_json(s) (o) {
+    o = s
+    n := len(o)
+    if n >= 2 { if substr(o, 0, 1) == "\"" { o = substr(o, 1, n-1) } }
+}
+
+// day_bucket — an integer day number (unix seconds / 86400) used to key the free-use
+// counter. Pure function of `ts` so it's testable without touching the clock.
+func day_bucket(ts) (d) { d = ts / 86400 }
+
+// onboarding_snippet — the one-line, copy-paste text a human drops into their agent's
+// system prompt / CLAUDE.md / custom instructions so the agent starts using stampd on its
+// own. Deliberately a plain instruction, not a curl command — the agent is expected to
+// discover the actual API shape itself from /llms.txt, per the cli-specs convention.
+func onboarding_snippet() (s) {
+    s = "Use https://stampd.intrane.fr to calculate UK property buying costs (Stamp Duty, " +
+        "the non-resident surcharge, fees, mortgage) — check https://stampd.intrane.fr/llms.txt " +
+        "for the API before calling it."
+}
+
 // sig_field — one key out of a Stripe-Signature header ("t=..,v1=..,v0=.."). Used by the
 // server to verify webhook HMACs; kept here so it is unit-tested with the other helpers.
 func sig_field(h, key) (v) {

@@ -20,8 +20,21 @@ func test_pro_key_lifecycle() {
     assert_eq_int(pro_key_valid("stmp_other"), 0, "other key still invalid")
 }
 
+func test_pro_session_seen() {
+    assert_eq_int(pro_session_seen(""), 0, "empty session_id never seen")
+    assert_eq_int(pro_session_seen("cs_unknown"), 0, "unknown session_id not seen")
+    k := mint_pro_key()
+    pro_key_add(k, "agent@agency.co.uk", "cs_test_dup")
+    assert_eq_int(pro_session_seen("cs_test_dup"), 1, "known session_id seen")
+    // A second mint attempt for the same session (simulating a Stripe webhook retry)
+    // must not be blocked at the store layer — the caller checks pro_session_seen
+    // FIRST and skips minting; this just confirms the lookup that guard relies on.
+    assert_eq_int(pro_session_seen("cs_test_dup"), 1, "still seen on repeat check")
+}
+
 func main() {
     test_mint_pro_key()
     test_pro_key_lifecycle()
+    test_pro_session_seen()
     test_summary()
 }

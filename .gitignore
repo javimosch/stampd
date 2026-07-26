@@ -2,4 +2,7 @@
 /build/*.mfl
 src/assets.src
 feedback.log
+*.db
+*.db-wal
+*.db-shm
 /tmp

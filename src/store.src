@@ -34,6 +34,21 @@ func pro_key_add(key, email, sid) (ok) {
     ok = 1
 }
 
+// pro_session_seen — 1 if a Pro key was already minted for this Stripe checkout
+// session_id, else 0. Guards the webhook against Stripe's at-least-once delivery
+// (retries on timeout / non-2xx / duplicate send) so a retried event doesn't mint a
+// second key and send a second email for the same payment.
+func pro_session_seen(sid) (ok) {
+    ok = 0
+    if sid == "" { return ok }
+    db := sqlite_open(store_path())
+    sqlite_exec(db, "PRAGMA busy_timeout=3000")
+    store_init(db)
+    rows := sqlite_query(db, "SELECT key FROM pro_keys WHERE session_id = ?", []string{sid})
+    sqlite_close(db)
+    if rows != "" && rows != "[]" { ok = 1 }
+}
+
 // pro_key_valid — 1 if `key` is a known paid key, else 0. Empty key is never valid.
 func pro_key_valid(key) (ok) {
     ok = 0

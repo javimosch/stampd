@@ -187,19 +187,24 @@ func stripe_webhook(req) (res) {
     if etype == "checkout.session.completed" && kind == "pro" {
         email := jbody(req.body, ".data.object.customer_details.email")
         sid := jbody(req.body, ".data.object.id")
-        key := mint_pro_key()
-        pro_key_add(key, email, sid)
-        if email != "" {
-            body := "Thanks for buying stampd Pro!\n\n" +
-                "Your Pro key (keep it safe):\n\n    " + key + "\n\n" +
-                "Use it to generate branded client reports:\n" +
-                "  curl -X POST https://stampd.intrane.fr/v1/report/branded \\\n" +
-                "    -H 'X-Stampd-Key: " + key + "' -H 'content-type: application/json' \\\n" +
-                "    -d '{\"price\":600000,\"buyer\":\"standard\",\"agency_name\":\"Your Agency\",\"agent_name\":\"You\",\"phone\":\"...\",\"email\":\"you@agency.co.uk\"}'\n\n" +
-                "The response is a print-ready HTML one-pager (print to PDF) carrying your\n" +
-                "agency's name and contact details, to hand to your client.\n\n" +
-                "— https://stampd.intrane.fr\n"
-            send_email(email, "Your stampd Pro key", body)
+        // Stripe delivers webhooks at-least-once (retries on timeout/non-2xx/duplicate),
+        // so the same paid session can arrive more than once. Only mint+email once per
+        // session_id, or a retry double-charges nothing but double-mints a free key.
+        if pro_session_seen(sid) == 0 {
+            key := mint_pro_key()
+            pro_key_add(key, email, sid)
+            if email != "" {
+                body := "Thanks for buying stampd Pro!\n\n" +
+                    "Your Pro key (keep it safe):\n\n    " + key + "\n\n" +
+                    "Use it to generate branded client reports:\n" +
+                    "  curl -X POST https://stampd.intrane.fr/v1/report/branded \\\n" +
+                    "    -H 'X-Stampd-Key: " + key + "' -H 'content-type: application/json' \\\n" +
+                    "    -d '{\"price\":600000,\"buyer\":\"standard\",\"agency_name\":\"Your Agency\",\"agent_name\":\"You\",\"phone\":\"...\",\"email\":\"you@agency.co.uk\"}'\n\n" +
+                    "The response is a print-ready HTML one-pager (print to PDF) carrying your\n" +
+                    "agency's name and contact details, to hand to your client.\n\n" +
+                    "— https://stampd.intrane.fr\n"
+                send_email(email, "Your stampd Pro key", body)
+            }
         }
     }
     res = ok_json("{\"ok\":true,\"received\":true}")

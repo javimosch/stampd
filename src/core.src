@@ -70,6 +70,38 @@ func onboarding_snippet() (s) {
         "for the API before calling it."
 }
 
+// sdlt_explain — a plain-English account of WHICH rules produced the SDLT figure.
+//
+// This exists because the number alone invites confabulation. An LLM (or a person)
+// looking at "£32,000 on £600,000 for a first-time buyer" will invent a rationale,
+// and the true reason — first-time relief vanishes entirely above £500,000, so
+// standard rates applied, plus the 2% non-resident surcharge — is not guessable.
+// Returning the derivation makes the engine self-explaining for every consumer.
+func sdlt_explain(price, buyer, non_resident) (s) {
+    parts := []string{}
+    if buyer == "first_time" {
+        if price > 500000 {
+            parts = append(parts, "First-time buyer relief does NOT apply because the price is above £500,000, so standard residential rates were used")
+        } else {
+            parts = append(parts, "First-time buyer relief: 0% up to £300,000, then 5% from £300,001 to £500,000")
+        }
+    } else if buyer == "additional" {
+        if price < 40000 {
+            parts = append(parts, "Standard residential rates; the additional-property surcharge does not apply below £40,000")
+        } else {
+            parts = append(parts, "Standard residential rates plus the 5% additional-property surcharge on every band (you will own more than one property)")
+        }
+    } else {
+        parts = append(parts, "Standard residential rates (0% to £125,000, 2% to £250,000, 5% to £925,000, 10% to £1.5m, 12% above)")
+    }
+    if non_resident == 1 {
+        if price >= 40000 {
+            parts = append(parts, "plus the 2% non-UK-resident surcharge on the whole price")
+        }
+    }
+    s = join(parts, ", ") + "."
+}
+
 // sig_field — one key out of a Stripe-Signature header ("t=..,v1=..,v0=.."). Used by the
 // server to verify webhook HMACs; kept here so it is unit-tested with the other helpers.
 func sig_field(h, key) (v) {
@@ -113,6 +145,7 @@ func calc_report(price, buyer, non_resident, deposit_pct, rate_pct, years, gross
         "\"result\":{" +
         "\"stamp_duty\":" + str(tax) + "," +
         "\"stamp_duty_effective_pct\":" + json(bp_pct(eff)) + "," +
+        "\"stamp_duty_explained\":" + json(sdlt_explain(price, buyer, non_resident)) + "," +
         "\"deposit\":" + str(dep) + "," +
         "\"loan\":" + str(loan) + "," +
         "\"monthly_payment\":" + str(monthly) + "," +

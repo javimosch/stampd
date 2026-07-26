@@ -71,6 +71,31 @@ func test_onboarding_snippet() {
     assert(contains(s, "non-resident"), "snippet mentions the non-resident surcharge")
 }
 
+func test_sdlt_explain() {
+    // The case that caused a real confabulation: at £600k a first-time buyer LOSES
+    // relief, so standard rates apply. Nothing about additional property.
+    e := sdlt_explain(600000, "first_time", 1)
+    assert(contains(e, "does NOT apply"), "explain: FTB relief lost above 500k")
+    assert(contains(e, "2% non-UK-resident"), "explain: non-resident surcharge named")
+    assert(contains(e, "additional-property") == false, "explain: no bogus additional-property claim")
+    // FTB under the cap keeps relief
+    e2 := sdlt_explain(425000, "first_time", 0)
+    assert(contains(e2, "First-time buyer relief: 0%"), "explain: FTB relief applies")
+    assert(contains(e2, "non-UK-resident") == false, "explain: resident has no surcharge line")
+    // additional property
+    e3 := sdlt_explain(600000, "additional", 0)
+    assert(contains(e3, "5% additional-property surcharge"), "explain: additional surcharge named")
+    // additional below the 40k floor
+    e4 := sdlt_explain(35000, "additional", 0)
+    assert(contains(e4, "does not apply below"), "explain: sub-40k additional exempt")
+    // standard
+    e5 := sdlt_explain(600000, "standard", 0)
+    assert(contains(e5, "Standard residential rates"), "explain: standard bands")
+    // non-resident below 40k gets no surcharge line
+    e6 := sdlt_explain(35000, "standard", 1)
+    assert(contains(e6, "non-UK-resident") == false, "explain: sub-40k non-res exempt")
+}
+
 func test_sig_field() {
     h := "t=1700000000,v1=abcdef,v0=old"
     assert_eq_str(sig_field(h, "t"), "1700000000", "sig_field t")
@@ -84,6 +109,7 @@ func main() {
     test_unq_json()
     test_day_bucket()
     test_onboarding_snippet()
+    test_sdlt_explain()
     test_sig_field()
     test_bp_pct()
     test_x100_str()

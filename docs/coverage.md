@@ -6,7 +6,7 @@ Run: `./test.sh`
 
 | Suite      | Assertions | Function coverage | Threshold | Status |
 |------------|-----------:|-------------------|-----------|--------|
-| Unit       | 111        | pure modules 100% | > 20% | PASS |
+| Unit       | 120        | pure modules 100% | > 20% | PASS |
 | Functional | 10 checks  | all HTTP routes   | —     | PASS |
 
 **Unit function coverage over the whole `src/` tree: ≈ 31/66 functions ≈ 47%.**
@@ -41,7 +41,7 @@ figures are cross-checked against the official gov.uk calculator (rates effectiv
 | `upfront_cash`            | full completion-day total |
 | `big`                     | exercised transitively as the top-band sentinel |
 
-### src/core.src — formatters + report builder (9/9 functions, 41 assertions)
+### src/core.src — formatters + report builder (10/10 functions, 50 assertions)
 
 | Function             | What's covered |
 |-----------------------|----------------|
@@ -50,6 +50,7 @@ figures are cross-checked against the official gov.uk calculator (rates effectiv
 | `x100_str`            | 4.52, 4.00, 0.09 |
 | `buyer_ok`            | each valid type, rejects, empty |
 | `sig_field`           | extract t/v1, missing key, empty header |
+| `sdlt_explain`        | FTB relief lost >£500k (and no bogus additional-property claim), FTB relief applies, additional surcharge, sub-£40k exemptions, standard bands, resident vs non-resident |
 | `calc_report`         | JSON shape, locked values, affordable/unaffordable branches |
 | `unq_json`            | quoted, unquoted, number passthrough, empty |
 | `day_bucket`          | epoch, just-under/exactly-one day, a real timestamp |

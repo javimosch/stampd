@@ -64,6 +64,10 @@
   surcharge if it's a second home or investment. stampd works out the exact figure, plus deposit,
   legal &amp; survey fees, Land Registry, and your monthly mortgage. Rates effective 1&nbsp;April&nbsp;2025.</p>
 
+  <p class="lead" style="color:var(--acc)">Not sure which surcharges apply to you?
+  <strong>Ask in the chat</strong> (bottom-right) — it works the answer out with you and runs the
+  real calculator, so the number it gives you is the same one this page produces.</p>
+
   <div class="card">
     <div class="grid">
       <div>
@@ -227,5 +231,13 @@ async function loadSnippet(){
 window.addEventListener("load",calc);
 window.addEventListener("load",loadSnippet);
 </script>
+<!-- Landing-page assistant (chatsnip). It reaches stampd's own /api/calc through a
+     declarative tool, so every figure it quotes comes from this engine rather than
+     from the model's guess — which matters because SDLT is multi-band marginal tax.
+     Its real job is CLASSIFICATION: "additional property" counts homes owned
+     anywhere in the world, and non-residence is about days in the UK, not
+     nationality -- the two things a form makes visitors get wrong.
+     Prompt + tool config live in chat/ ; provision with chat/setup.sh. -->
+<script src="https://chatsnip.intrane.fr/w.js" data-agent="pk_df7dda76d1b6d97c69653c92" defer></script>
 </body>
 </html>

@@ -1,0 +1,43 @@
+[
+  {
+    "name": "calc_buying_cost",
+    "description": "Calculate the true cost of buying a residential property in England or Northern Ireland: Stamp Duty (SDLT) including the 2% non-UK-resident surcharge and the 5% additional-property surcharge, plus deposit, legal/survey/mortgage fees, Land Registry, the monthly mortgage repayment, and the total cash needed on completion day. ALWAYS call this tool for any figure. NEVER estimate or calculate stamp duty yourself — SDLT is a multi-band marginal tax and a guessed number would be wrong.",
+    "parameters": {
+      "type": "object",
+      "properties": {
+        "price": {
+          "type": "integer",
+          "description": "Purchase price in GBP, as a plain integer (e.g. 850000)."
+        },
+        "buyer": {
+          "type": "string",
+          "enum": ["standard", "first_time", "additional"],
+          "description": "standard = this will be their only home (they own no other property anywhere, or are replacing their main residence). first_time = they have never owned a property anywhere in the world. additional = they will own more than one property after this purchase (a second home, a buy-to-let, or they already own a home ANYWHERE INCLUDING OVERSEAS). Ask if unclear — overseas property counts, and buyers usually don't know that."
+        },
+        "non_resident": {
+          "type": "string",
+          "enum": ["0", "1"],
+          "description": "1 if the buyer has been present in the UK fewer than 183 days in the 12 months before completion (this is about days in the UK, NOT nationality or visa). 0 if UK-resident."
+        },
+        "deposit_pct": {
+          "type": "integer",
+          "description": "Deposit as a whole percentage of the price (e.g. 25). Omit unless the visitor stated one; omitting it applies a 10% deposit."
+        },
+        "rate": {
+          "type": "string",
+          "description": "Mortgage interest rate as a percentage, e.g. \"4.5\". Omit unless stated; omitting it applies 4.5%."
+        },
+        "years": {
+          "type": "integer",
+          "description": "Mortgage term in years. Omit unless stated; omitting it applies 25 years."
+        }
+      },
+      "required": ["price"]
+    },
+    "http": {
+      "method": "GET",
+      "url": "https://stampd.intrane.fr/api/calc?price={{price}}&buyer={{buyer}}&non_resident={{non_resident}}&deposit_pct={{deposit_pct}}&rate={{rate}}&years={{years}}",
+      "headers": ["accept: application/json"]
+    }
+  }
+]

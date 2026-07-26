@@ -5,7 +5,26 @@
 // One binary: `stampd serve -port 8080` runs this; any other argv runs the CLI.
 
 func err_json(status, msg) (r) {
-    r = response(status, "application/json", "{\"ok\":false,\"error\":" + json(msg) + "}")
+    r = cors_open(response(status, "application/json", "{\"ok\":false,\"error\":" + json(msg) + "}"))
+}
+
+// cors_open — allow any browser origin to read the public JSON endpoints.
+//
+// Needed because the UI and the API can live on DIFFERENT origins: a landing page
+// hosted as a hart artifact (hart.intrane.fr) calling this API is a cross-origin
+// fetch, which the browser blocks without this header no matter how permissive the
+// page's CSP is. Discovered by spiking exactly that (hart CSP allowed the call;
+// the missing ACAO header killed it).
+//
+// `*` is correct here rather than lax: /api/calc is public, read-only, takes no
+// credentials and sets no cookies, so there is nothing for a hostile origin to
+// steal by reading it. Never widen this to the Pro/branded or Stripe routes,
+// which ARE key-gated.
+func cors_open(res) (r) {
+    r = with_header(res, "Access-Control-Allow-Origin", "*")
+    r = with_header(r, "Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+    r = with_header(r, "Access-Control-Allow-Headers", "content-type")
+    r = with_header(r, "Access-Control-Max-Age", "86400")
 }
 
 // qdef — a query param with a fallback default.
@@ -79,7 +98,7 @@ func api_calc(req) (res) {
     }
     out, errmsg := report_from_params(price_s, buyer, nonres_s, dep_s, rate_s, years_s, income_s)
     if errmsg != "" { return err_json("400 Bad Request", errmsg) }
-    res = ok_json(out)
+    res = cors_open(ok_json(out))
 }
 
 // email_body — a plain-text cost breakdown for the Resend email.
@@ -383,6 +402,9 @@ func handle(req) (res) {
     if p == "/snippet" { return ok_text(onboarding_snippet()) }
     if p == "/llms.txt" { return ok_text(llms_txt()) }
     if p == "/help-json" { return ok_json(help_json()) }
+    // CORS preflight: a JSON POST from a browser on another origin sends OPTIONS
+    // first. Answer it before any other routing so it never falls through to 404.
+    if req.method == "OPTIONS" { return cors_open(response("204 No Content", "text/plain", "")) }
     if p == "/api/calc" { return api_calc(req) }
     if p == "/v1/report/email" && req.method == "POST" { return email_report(req) }
     if p == "/v1/checkout" && req.method == "POST" { return checkout(req) }

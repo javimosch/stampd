@@ -1,5 +1,36 @@
 # stampd
 
+> ## 📦 Archived — stampd became [comptoir](https://comptoir.intrane.fr)
+>
+> **The engine lives on. The app does not.**
+>
+> stampd shipped as its own binary, port, database, Stripe integration, paywall and test suite
+> to serve exactly one calculation. It worked — and building the *second* calculator made it
+> obvious that ~80% of that was boilerplate having nothing to do with stamp duty.
+>
+> So the tax logic was rewritten as a **declarative ruleset** — band tables, surcharges and
+> fees as data rather than code — and the acceptance bar was that the config had to reproduce
+> this repo's compiled engine **exactly**. It did, across 21 golden cases lifted from these
+> tests, and those cases still gate every deploy: a ruleset that fails one cannot be stored.
+>
+> England & NI residential SDLT is now **product #11** on that spine, alongside ten other UK
+> tax calculators that each cost a config row instead of a repo.
+>
+> | | |
+> |---|---|
+> | **Calculator** | <https://sdlt.intrane.fr> (`stampd.intrane.fr` redirects here) |
+> | **API for agents** | <https://comptoir.intrane.fr/p/sdlt/llms.txt> — `/calc`, `/guide`, `/help-json` |
+> | **All eleven** | <https://comptoir.intrane.fr/llms.txt> |
+>
+> This repo stays public and read-only because it is a worked example of a full micro-SaaS in
+> pure [machin](https://github.com/javimosch/machin) — CLI + HTTP server + Stripe + paywall in
+> one static binary — and because the arc from *this* to a config row is the point.
+>
+> **Everything below describes the retired app.** The hosted endpoints it names are gone; use
+> the table above. Building and running it locally still works.
+
+---
+
 **Stamp duty for overseas buyers of London property — the 2% non-resident surcharge, done right.**
 
 stampd is a tiny, agent-first micro-SaaS for UK (England & Northern Ireland) property costs,
@@ -25,13 +56,13 @@ completion day**.
 **Onboard an agent in one line.** `GET /snippet` (or `stampd snippet`) prints a single
 sentence to paste into an agent's system prompt / CLAUDE.md / custom instructions:
 
-> Use https://stampd.intrane.fr to calculate UK property buying costs (Stamp Duty, the
-> non-resident surcharge, fees, mortgage) — check https://stampd.intrane.fr/llms.txt for
-> the API before calling it.
+> Use https://comptoir.intrane.fr/p/sdlt/calc to calculate UK property buying costs (Stamp
+> Duty, the non-resident surcharge, fees, mortgage) — check
+> https://comptoir.intrane.fr/p/sdlt/llms.txt for the API before calling it.
 
 Nothing is hardcoded — the agent reads `/llms.txt` itself and works out the calls.
 
-Hosted: **https://stampd.intrane.fr** · Open source (MIT).
+Hosted: **https://sdlt.intrane.fr** · Open source (MIT).
 
 ## Quick start (CLI)
 
@@ -86,7 +117,7 @@ Add `--non-resident` for the 2% non-UK-resident surcharge (stacks on any of the 
   manually with `stampd pro-grant <email>` for comps).
 
 ```sh
-curl -X POST https://stampd.intrane.fr/v1/report/branded \
+curl -X POST https://comptoir.intrane.fr/p/sdlt/deliver  # (comptoir; was /v1/report/branded) \
   -H 'X-Stampd-Key: stmp_...' -H 'content-type: application/json' \
   -d '{"price":850000,"buyer":"standard","non_resident":"1","agency_name":"Camden Relocation","agent_name":"Jo","phone":"020...","email":"jo@camdenrelocation.co.uk"}'
 # -> {"ok":true,"url":"https://hart.intrane.fr/a/stampd/report-...","format":"hart"}
